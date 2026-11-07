@@ -57,7 +57,10 @@ extension EditorTool {
 
 /// A look setting the properties bar can show for a tool.
 public enum StyleProperty: String, Sendable, CaseIterable {
-    case stroke, fill, width, opacity, dash, cornerRadius
+    case stroke, fill, width
+    /// The two ends of a line: arrowheads and so on. (Declared here so they sit next to Width in the bar.)
+    case startHead, endHead
+    case opacity, dash, cornerRadius
     case fontName, fontSize, bold, italic, alignment
     /// Blur radius, pixel block size, or magnifier zoom.
     case strength
@@ -65,8 +68,6 @@ public enum StyleProperty: String, Sendable, CaseIterable {
     case zoom
     /// Text color inside bubbles.
     case textColor
-    /// The two ends of a line: arrowheads and so on.
-    case startHead, endHead
 }
 
 public struct EditorToolDescriptor: Sendable, Identifiable, Equatable {
@@ -149,7 +150,7 @@ public enum EditorToolRegistry {
     private static let bubbleStyle = AnnotationStyle(
         strokeColor: AnnotationStyle.defaultStroke, fillColor: RGBAColor(hex: "#FFF7B2FF") ?? .white, lineWidth: 3,
         cornerRadius: 20, fontSize: 28)
-    private static let bubbleTitles: [StyleProperty: String] = [.fill: "Bubble", .stroke: "Border", .width: "Border width", .textColor: "Text"]
+    private static let bubbleTitles: [StyleProperty: String] = [.fill: "Bubble", .stroke: "Border", .width: "Weight", .textColor: "Text"]
     public static let callout = EditorToolDescriptor(
         id: "callout", title: "Speech Bubble", symbol: "text.bubble", key: "c", kind: .draw,
         styleProperties: bubbleProperties + [.cornerRadius, .opacity], defaultStyle: bubbleStyle,

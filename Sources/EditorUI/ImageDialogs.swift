@@ -6,11 +6,6 @@ import SwiftUI
 /// Small helpers shared by the dialogs.
 private func color(_ c: RGBAColor) -> Color { Color(.sRGB, red: c.red, green: c.green, blue: c.blue, opacity: c.alpha) }
 
-private func rgba(_ c: Color) -> RGBAColor {
-    let ns = NSColor(c).usingColorSpace(.sRGB) ?? .white
-    return RGBAColor(red: ns.redComponent, green: ns.greenComponent, blue: ns.blueComponent, alpha: ns.alphaComponent)
-}
-
 private struct DialogButtons: View {
     let applyTitle: String
     let canApply: Bool

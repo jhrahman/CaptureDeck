@@ -15,6 +15,8 @@ final class ToolOptionsModel: ObservableObject {
     @Published var titles: [StyleProperty: String] = [:]
     /// Shown instead of controls when there is nothing to edit yet.
     @Published var hint: String?
+    /// True when the controls do not fit on one line, so the bar grows to two.
+    @Published var wraps = false
 
     /// Called whenever the user changes something in the bar.
     var onStyleEdited: ((AnnotationStyle) -> Void)?
@@ -36,9 +38,9 @@ final class ToolOptionsModel: ObservableObject {
 /// SwiftUI also has a `TextAlignment`; this one is ours.
 private typealias Align = EditorEngine.TextAlignment
 
-private func swiftUIColor(_ c: RGBAColor) -> Color { Color(.sRGB, red: c.red, green: c.green, blue: c.blue, opacity: c.alpha) }
+func swiftUIColor(_ c: RGBAColor) -> Color { Color(.sRGB, red: c.red, green: c.green, blue: c.blue, opacity: c.alpha) }
 
-private func rgba(_ color: Color) -> RGBAColor {
+func rgba(_ color: Color) -> RGBAColor {
     let ns = NSColor(color).usingColorSpace(.sRGB) ?? .black
     return RGBAColor(red: ns.redComponent, green: ns.greenComponent, blue: ns.blueComponent, alpha: ns.alphaComponent)
 }
@@ -48,21 +50,10 @@ struct ToolOptionsView: View {
     @ObservedObject var model: ToolOptionsModel
 
     var body: some View {
-        HStack(spacing: 14) {
-            // The controls scroll sideways in a narrow window; the object buttons stay put on the right.
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 14) {
-                    Text(model.title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
-                    if let hint = model.hint, model.properties.isEmpty {
-                        Text(hint).font(.caption).foregroundStyle(.secondary)
-                    }
-                    ForEach(model.properties, id: \.self) { property in
-                        control(for: property)
-                    }
-                }
-                .frame(maxHeight: .infinity)
-            }
-
+        HStack(alignment: .top, spacing: 10) {
+            controlsBody
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(widthProbe(ideal: true))
             if model.selectionCount > 0 {
                 HStack(spacing: 2) {
                     iconButton("plus.square.on.square", "Duplicate (⌘J)") { model.onAction?(.duplicate) }
@@ -70,11 +61,61 @@ struct ToolOptionsView: View {
                     iconButton("square.3.layers.3d.bottom.filled", "Send to Back") { model.onAction?(.sendToBack) }
                     iconButton("trash", "Delete (⌫)") { model.onAction?(.delete) }
                 }
+                .frame(height: 38)
             }
         }
         .padding(.horizontal, 12)
-        .frame(height: 38)
+        .frame(maxHeight: .infinity, alignment: .top)
         .background(.bar)
+        .onPreferenceChange(IdealWidthKey.self) { ideal in
+            // Re-measured whenever the controls change; one line is preferred.
+            if let ideal { measuredIdeal = ideal; recompute() }
+        }
+        .background(GeometryReader { proxy in Color.clear.onAppear { available = proxy.size.width; recompute() }
+            .onChange(of: proxy.size.width) { available = $0; recompute() } })
+    }
+
+    @State private var measuredIdeal: CGFloat = 0
+    @State private var available: CGFloat = 10_000
+
+    private func recompute() {
+        let reserved: CGFloat = model.selectionCount > 0 ? 130 : 24
+        let wraps = measuredIdeal + reserved > available
+        if wraps != model.wraps { model.wraps = wraps }
+    }
+
+    /// Reports how wide all the controls would be on a single line.
+    private func widthProbe(ideal: Bool) -> some View {
+        controlsRow.fixedSize().hidden().background(GeometryReader { proxy in
+            Color.clear.preference(key: IdealWidthKey.self, value: proxy.size.width)
+        })
+    }
+
+    private var controlsRow: some View {
+        HStack(spacing: 10) {
+            Text(model.title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+            ForEach(model.properties, id: \.self) { control(for: $0) }
+        }
+    }
+
+    @ViewBuilder private var controlsBody: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let hint = model.hint, model.properties.isEmpty {
+                HStack(spacing: 10) {
+                    Text(model.title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                    Text(hint).font(.caption).foregroundStyle(.secondary)
+                }
+                .frame(height: 38)
+            } else if model.wraps {
+                WrapLayout(spacing: 10, rowSpacing: 4) {
+                    Text(model.title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                    ForEach(model.properties, id: \.self) { control(for: $0) }
+                }
+                .padding(.vertical, 6)
+            } else {
+                controlsRow.frame(height: 38)
+            }
+        }
     }
 
     private func iconButton(_ symbol: String, _ help: String, action: @escaping () -> Void) -> some View {
@@ -86,29 +127,25 @@ struct ToolOptionsView: View {
         switch property {
         case .stroke:
             labelled(model.title(.stroke, default: "Color")) {
-                ColorPicker("Color", selection: Binding(get: { swiftUIColor(model.style.strokeColor) },
-                                                        set: { c in model.edit { $0.strokeColor = rgba(c) } }), supportsOpacity: true)
-                    .labelsHidden()
+                ColorSwatchButton(color: Binding(get: { model.style.strokeColor }, set: { c in model.edit { $0.strokeColor = c } }),
+                                  allowsClear: false, help: "Color")
             }
         case .fill:
             labelled(model.title(.fill, default: "Fill")) {
-                ColorPicker("Fill", selection: Binding(get: { swiftUIColor(model.style.fillColor) },
-                                                       set: { c in model.edit { $0.fillColor = rgba(c) } }), supportsOpacity: true)
-                    .labelsHidden()
-                Button { model.edit { $0.fillColor = .clear } } label: { Image(systemName: "nosign") }
-                    .buttonStyle(.borderless).help("No fill").opacity(model.style.fillColor.alpha > 0 ? 1 : 0.3)
+                ColorSwatchButton(color: Binding(get: { model.style.fillColor }, set: { c in model.edit { $0.fillColor = c } }),
+                                  allowsClear: true, help: "Fill color")
             }
         case .width:
             labelled(model.title(.width, default: "Width")) {
                 Slider(value: Binding(get: { model.style.lineWidth }, set: { v in model.edit { $0.lineWidth = v.rounded() } }), in: 1...40)
-                    .frame(width: 90)
+                    .frame(width: 64)
                 Text("\(Int(model.style.lineWidth))").monospacedDigit().frame(width: 22, alignment: .trailing).font(.caption)
             }
         case .opacity:
             labelled("Opacity") {
                 Slider(value: Binding(get: { model.style.opacity }, set: { v in model.edit { $0.opacity = v } }), in: 0.05...1)
-                    .frame(width: 80)
-                Text("\(Int((model.style.opacity * 100).rounded()))%").monospacedDigit().frame(width: 36, alignment: .trailing).font(.caption)
+                    .frame(width: 56)
+                Text("\(Int((model.style.opacity * 100).rounded()))%").monospacedDigit().frame(width: 32, alignment: .trailing).font(.caption)
             }
         case .dash:
             labelled("Line") {
@@ -125,13 +162,13 @@ struct ToolOptionsView: View {
                 Picker("Font", selection: Binding(get: { model.style.fontName }, set: { v in model.edit { $0.fontName = v } })) {
                     ForEach(fonts, id: \.self) { Text($0).tag($0) }
                 }
-                .labelsHidden().frame(width: 130)
+                .labelsHidden().frame(width: 112)
             }
         case .fontSize:
             labelled(model.title(.fontSize, default: "Size")) {
                 Slider(value: Binding(get: { model.style.fontSize }, set: { v in model.edit { $0.fontSize = v.rounded() } }), in: 8...200)
-                    .frame(width: 90)
-                Text("\(Int(model.style.fontSize))").monospacedDigit().frame(width: 28, alignment: .trailing).font(.caption)
+                    .frame(width: 64)
+                Text("\(Int(model.style.fontSize))").monospacedDigit().frame(width: 22, alignment: .trailing).font(.caption)
             }
         case .bold:
             Toggle(isOn: Binding(get: { model.style.bold }, set: { v in model.edit { $0.bold = v } })) { Image(systemName: "bold") }
@@ -149,44 +186,81 @@ struct ToolOptionsView: View {
         case .strength:
             labelled(model.title(.strength, default: "Strength")) {
                 Slider(value: Binding(get: { model.style.strength }, set: { v in model.edit { $0.strength = v.rounded() } }), in: 1...60)
-                    .frame(width: 120)
+                    .frame(width: 80)
                 Text("\(Int(model.style.strength))").monospacedDigit().frame(width: 24, alignment: .trailing).font(.caption)
             }
         case .endHead:
-            labelled(model.title(.endHead, default: "Head")) { headPicker(model.style.endHead) { v in model.edit { $0.endHead = v } } }
+            labelled(model.title(.endHead, default: "Head")) { headPicker(model.style.endHead, atStart: false) { v in model.edit { $0.endHead = v } } }
         case .startHead:
-            labelled(model.title(.startHead, default: "Tail")) { headPicker(model.style.startHead) { v in model.edit { $0.startHead = v } } }
+            labelled(model.title(.startHead, default: "Tail")) { headPicker(model.style.startHead, atStart: true) { v in model.edit { $0.startHead = v } } }
         case .textColor:
             labelled(model.title(.textColor, default: "Text")) {
-                ColorPicker("Text color", selection: Binding(get: { swiftUIColor(model.style.textColor) },
-                                                             set: { c in model.edit { $0.textColor = rgba(c) } }), supportsOpacity: false)
-                    .labelsHidden()
+                ColorSwatchButton(color: Binding(get: { model.style.textColor }, set: { c in model.edit { $0.textColor = c } }),
+                                  allowsClear: false, help: "Text color")
             }
         case .zoom:
             labelled(model.title(.zoom, default: "Zoom")) {
                 Slider(value: Binding(get: { model.style.strength }, set: { v in model.edit { $0.strength = v.rounded() } }), in: 2...8, step: 1)
-                    .frame(width: 90)
+                    .frame(width: 64)
                 Text("\(Int(model.style.strength))×").monospacedDigit().frame(width: 26, alignment: .trailing).font(.caption)
             }
         case .cornerRadius:
             labelled("Corners") {
                 Slider(value: Binding(get: { model.style.cornerRadius }, set: { v in model.edit { $0.cornerRadius = v.rounded() } }), in: 0...100)
-                    .frame(width: 80)
+                    .frame(width: 56)
             }
         }
     }
 
-    private func headPicker(_ current: ArrowHeadStyle, _ set: @escaping (ArrowHeadStyle) -> Void) -> some View {
-        Picker("End", selection: Binding(get: { current }, set: set)) {
-            ForEach(ArrowHeadStyle.allCases, id: \.self) { Text($0.title).tag($0) }
-        }
-        .labelsHidden().frame(width: 112)
+    private func headPicker(_ current: ArrowHeadStyle, atStart: Bool, _ set: @escaping (ArrowHeadStyle) -> Void) -> some View {
+        HeadPickerButton(current: current, atStart: atStart, color: model.style.strokeColor, set: set)
     }
 
     private func labelled<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: 5) {
             Text(title).font(.caption).foregroundStyle(.secondary)
             content()
+        }
+    }
+}
+
+private struct IdealWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat? = nil
+    static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) { value = nextValue() ?? value }
+}
+
+/// Lays children left to right and wraps to a new row when the line is full.
+struct WrapLayout: Layout {
+    var spacing: CGFloat = 8
+    var rowSpacing: CGFloat = 6
+
+    private func rows(_ subviews: Subviews, width: CGFloat) -> (frames: [CGRect], size: CGSize) {
+        var frames: [CGRect] = []
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0, maxX: CGFloat = 0
+        for view in subviews {
+            let size = view.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > width { x = 0; y += rowHeight + rowSpacing; rowHeight = 0 }
+            frames.append(CGRect(x: x, y: y, width: size.width, height: size.height))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+            maxX = max(maxX, x - spacing)
+        }
+        return (frames, CGSize(width: maxX, height: y + rowHeight))
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        rows(subviews, width: proposal.width ?? .infinity).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let laid = rows(subviews, width: bounds.width)
+        // Centre each item vertically within its row.
+        var rowTops: [CGFloat: CGFloat] = [:]
+        for f in laid.frames { rowTops[f.minY] = max(rowTops[f.minY] ?? 0, f.height) }
+        for (view, frame) in zip(subviews, laid.frames) {
+            let rowHeight = rowTops[frame.minY] ?? frame.height
+            view.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY + (rowHeight - frame.height) / 2),
+                       proposal: ProposedViewSize(frame.size))
         }
     }
 }

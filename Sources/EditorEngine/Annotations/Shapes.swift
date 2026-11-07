@@ -148,6 +148,14 @@ public struct LineShape: AnnotationShape, Codable, Equatable {
 
     public var geometryBounds: CGRect { boundingRect(of: [start, end]) }
 
+    public var extraHandles: [CGPoint] { [start, end] }
+    public var handlesReplaceBounds: Bool { true }
+
+    public func movingHandle(_ index: Int, to point: CGPoint) -> any AnnotationShape {
+        // Holding the other end still, a drag may land anywhere; the caller snaps to angles when Shift is held.
+        index == 0 ? LineShape(start: point, end: end) : LineShape(start: start, end: point)
+    }
+
     static func headLength(for style: AnnotationStyle) -> CGFloat { max(12, CGFloat(style.lineWidth) * 3.5) }
 
     public func draw(in context: CGContext, style: AnnotationStyle) {

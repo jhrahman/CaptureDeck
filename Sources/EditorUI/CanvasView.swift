@@ -28,6 +28,11 @@ final class CanvasView: NSView {
     var onToolKey: ((String) -> Bool)?       // single-letter tool switching
     var onCycleTool: ((Bool) -> Void)?       // Tab / Shift+Tab
 
+    /// While a drawing tool is active, the handles of the object you just drew still work, and Delete / arrow keys
+    /// still act on it. The pointer tool does that work.
+    private let direct = PointerTool()
+    private var gestureTool: (any EditorTool)?
+
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -45,7 +50,9 @@ final class CanvasView: NSView {
 
     private func updateCursor(_ event: NSEvent) {
         guard let tool = activeTool, let context = toolContext?() else { return }
-        tool.cursor(at: imagePoint(event), context: context).set()
+        let point = imagePoint(event)
+        if tool.descriptor.kind == .draw, direct.grabs(point, context: context) { direct.cursor(at: point, context: context).set(); return }
+        tool.cursor(at: point, context: context).set()
     }
 
     override func cursorUpdate(with event: NSEvent) { updateCursor(event) }
@@ -55,24 +62,67 @@ final class CanvasView: NSView {
         window?.makeFirstResponder(self)
         guard let tool = activeTool, var context = toolContext?() else { return }
         context.clickCount = event.clickCount
-        tool.mouseDown(at: imagePoint(event), context: context)
+        let point = imagePoint(event)
+        if tool.descriptor.kind == .draw, direct.grabs(point, context: context) {
+            gestureTool = direct
+            direct.mouseDown(at: point, context: context)
+            return
+        }
+        gestureTool = nil
+        tool.mouseDown(at: point, context: context)
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard let tool = activeTool, let context = toolContext?() else { return }
+        guard let tool = gestureTool ?? activeTool, let context = toolContext?() else { return }
         tool.mouseDragged(to: imagePoint(event), context: context)
         autoscroll(with: event)
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard let tool = activeTool, let context = toolContext?() else { return }
+        guard let tool = gestureTool ?? activeTool, let context = toolContext?() else { return }
+        gestureTool = nil
         tool.mouseUp(at: imagePoint(event), context: context)
         updateCursor(event)
+    }
+
+    // MARK: Right-click menu
+
+    /// Called with the chosen action; the editor performs it on the selection.
+    var onObjectAction: ((ToolOptionsModel.ObjectAction) -> Void)?
+    /// Selects the object under the pointer (so the menu acts on it) and says whether there is one.
+    var onSelectObject: ((CGPoint) -> Bool)?
+
+    private final class ActionItem: NSMenuItem {
+        var action2: ToolOptionsModel.ObjectAction?
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard onSelectObject?(imagePoint(event)) == true else { return nil }
+        let menu = NSMenu()
+        for (title, symbol, action, key) in [
+            ("Duplicate", "plus.square.on.square", ToolOptionsModel.ObjectAction.duplicate, "j"),
+            ("Bring to Front", "square.3.layers.3d.top.filled", .bringToFront, ""),
+            ("Send to Back", "square.3.layers.3d.bottom.filled", .sendToBack, ""),
+            ("Delete", "trash", .delete, ""),
+        ] {
+            if action == .delete { menu.addItem(.separator()) }
+            let item = ActionItem(title: title, action: #selector(runAction(_:)), keyEquivalent: key)
+            item.target = self
+            item.action2 = action
+            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    @objc private func runAction(_ sender: NSMenuItem) {
+        if let action = (sender as? ActionItem)?.action2 { onObjectAction?(action) }
     }
 
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if let tool = activeTool, let context = toolContext?(), tool.keyDown(event, context: context) { return }
+        if let tool = activeTool, tool.descriptor.kind == .draw, let context = toolContext?(), direct.keyDown(event, context: context) { return }
         if flags.isEmpty || flags == .shift {
             if event.keyCode == 48 { onCycleTool?(flags == .shift); return }          // Tab / Shift+Tab
             if let key = event.charactersIgnoringModifiers?.lowercased(), onToolKey?(key) == true { return }
@@ -116,20 +166,31 @@ final class CanvasView: NSView {
             union = union.union(annotation.bounds)
             context.setStrokeColor(CGColor(red: 0.2, green: 0.5, blue: 1, alpha: 1))
             context.setLineDash(phase: 0, lengths: [4 * unit, 3 * unit])
-            context.stroke(box)
+            if !(chosen.count == 1 && annotation.shape.handlesReplaceBounds) { context.stroke(box) }
         }
         // A shape's own handles (the tip of a speech bubble's tail) show when it is the only thing selected.
+        let onlyOwnHandles = chosen.count == 1 && chosen[0].shape.handlesReplaceBounds
         if chosen.count == 1 {
+            let radius: CGFloat = onlyOwnHandles ? 6 : 5
             for point in chosen[0].shape.extraHandles {
-                let dot = CGRect(x: point.x - 5 * unit, y: point.y - 5 * unit, width: 10 * unit, height: 10 * unit)
+                let dot = CGRect(x: point.x - radius * unit, y: point.y - radius * unit, width: radius * 2 * unit, height: radius * 2 * unit)
                 context.setLineDash(phase: 0, lengths: [])
-                context.setFillColor(CGColor(red: 1, green: 0.62, blue: 0.04, alpha: 1))
-                context.fillEllipse(in: dot)
-                context.setStrokeColor(CGColor(gray: 1, alpha: 1))
-                context.strokeEllipse(in: dot)
+                if onlyOwnHandles {
+                    // A hollow ring, so the arrowhead underneath stays visible.
+                    context.setLineWidth(4 * unit); context.setStrokeColor(CGColor(gray: 1, alpha: 0.95)); context.strokeEllipse(in: dot)
+                    context.setLineWidth(2 * unit); context.setStrokeColor(CGColor(red: 0.2, green: 0.5, blue: 1, alpha: 1)); context.strokeEllipse(in: dot)
+                } else {
+                    context.setFillColor(CGColor(red: 1, green: 0.62, blue: 0.04, alpha: 1))
+                    context.fillEllipse(in: dot)
+                    context.setStrokeColor(CGColor(gray: 1, alpha: 1))
+                    context.setLineWidth(1.5 * unit)
+                    context.strokeEllipse(in: dot)
+                }
             }
+            context.setLineWidth(unit)
         }
         context.setLineDash(phase: 0, lengths: [])
+        if onlyOwnHandles { context.restoreGState(); return }
         let handle = 7 * unit
         let xs: [CGFloat] = [union.minX, union.midX, union.maxX]
         let ys: [CGFloat] = [union.minY, union.midY, union.maxY]
@@ -264,3 +325,4 @@ final class CenteringClipView: NSClipView {
         return rect
     }
 }
+

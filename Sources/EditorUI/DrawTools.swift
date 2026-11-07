@@ -130,10 +130,20 @@ final class PointerTool: EditorTool {
         case resizing(handle: SelectionHandle, startBounds: CGRect, originals: [Annotation])
     }
     private var state = State.idle
+    static func snapped(_ point: CGPoint, around anchor: CGPoint) -> CGPoint {
+        let dx = point.x - anchor.x, dy = point.y - anchor.y
+        let length = hypot(dx, dy)
+        guard length > 0 else { return point }
+        let step = CGFloat.pi / 4
+        let angle = (atan2(dy, dx) / step).rounded() * step
+        return CGPoint(x: (anchor.x + cos(angle) * length).rounded(), y: (anchor.y + sin(angle) * length).rounded())
+    }
     private static let huge = CGRect(x: -1_000_000, y: -1_000_000, width: 2_000_000, height: 2_000_000)
 
     private func handle(at point: CGPoint, context: ToolContext) -> SelectionHandle? {
         guard let bounds = context.document.selectedAnnotationBounds else { return nil }
+        let selected = context.document.selectedAnnotations
+        if selected.count == 1, selected[0].shape.handlesReplaceBounds { return nil }
         return RectSelectionEditing.handleHit(rect: bounds, point: point, tolerance: context.imagePixels(forScreenPoints: 7))
     }
 
@@ -146,6 +156,11 @@ final class PointerTool: EditorTool {
             return (annotation, index)
         }
         return nil
+    }
+
+    /// True when the point is on a handle of the selected object, so any drawing tool can hand the gesture over.
+    func grabs(_ point: CGPoint, context: ToolContext) -> Bool {
+        extraHandle(at: point, context: context) != nil || handle(at: point, context: context) != nil
     }
 
     func cursor(at point: CGPoint, context: ToolContext) -> NSCursor {
@@ -205,7 +220,12 @@ final class PointerTool: EditorTool {
         switch state {
         case .idle: break
         case .tail(let original, let index):
-            document.previewAnnotations([Annotation(id: original.id, shape: original.shape.movingHandle(index, to: point), style: original.style)])
+            var target = point
+            // Shift snaps a line to 0°, 45°, 90°… around its other end.
+            if NSEvent.modifierFlags.contains(.shift), let line = original.shape as? LineShape {
+                target = Self.snapped(point, around: index == 0 ? line.end : line.start)
+            }
+            document.previewAnnotations([Annotation(id: original.id, shape: original.shape.movingHandle(index, to: target), style: original.style)])
         case .moving(let from, let originals):
             let move = CGAffineTransform(translationX: (point.x - from.x).rounded(), y: (point.y - from.y).rounded())
             document.previewAnnotations(originals.map { $0.applying(move) })

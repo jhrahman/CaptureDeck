@@ -57,12 +57,14 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
 
         let options = NSHostingView(rootView: ToolOptionsView(model: optionsModel))
         options.translatesAutoresizingMaskIntoConstraints = false
+        options.sizingOptions = []          // the bar's height is ours to set; its content must not push back
         optionsBar = options
         let height = options.heightAnchor.constraint(equalToConstant: 38)
         optionsHeight = height
 
         let ribbon = NSHostingView(rootView: ToolRibbonView(model: ribbonModel))
         ribbon.translatesAutoresizingMaskIntoConstraints = false
+        ribbon.sizingOptions = []
 
         container.addSubview(ribbon)
         container.addSubview(options)
@@ -103,6 +105,14 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
                                style: self.currentToolStyle(), host: self)
         }
         canvas.previewProvider = { [weak self] in self?.activeTool.previewAnnotations ?? [] }
+        optionsModel.$wraps.removeDuplicates()
+            .sink { [weak self] wraps in self?.applyOptionsHeight(wraps: wraps) }.store(in: &cancellables)
+        canvas.onObjectAction = { [weak self] action in self?.perform(action) }
+        canvas.onSelectObject = { [weak self] point in
+            guard let self, let hit = self.document.annotation(at: point, tolerance: 6 / max(self.scrollView.magnification, 0.01)) else { return false }
+            if !self.document.selectedAnnotationIDs.contains(hit.id) { self.document.selectAnnotations([hit.id]) }
+            return true
+        }
         canvas.onToolKey = { [weak self] key in self?.selectTool(key: key) ?? false }
         canvas.onCycleTool = { [weak self] backwards in self?.cycleTool(backwards: backwards) }
         canvas.showSelectionSize = settings?.bool("editor.showSelectionSize") ?? true
@@ -298,6 +308,13 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
         let visible = descriptor.kind != .pixelSelection
         optionsHeight?.constant = visible ? 38 : 0
         optionsBar?.isHidden = !visible
+        applyOptionsHeight()
+    }
+
+    /// One line normally; two when the controls do not fit the window's width.
+    private func applyOptionsHeight(wraps: Bool? = nil) {
+        let visible = activeTool.descriptor.kind != .pixelSelection
+        optionsHeight?.constant = visible ? ((wraps ?? optionsModel.wraps) && !optionsModel.properties.isEmpty ? 74 : 38) : 0
     }
 
     /// The user changed something in the bar: restyle the selected objects and remember it as the tool's look.

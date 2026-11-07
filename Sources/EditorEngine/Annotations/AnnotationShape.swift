@@ -32,12 +32,15 @@ public protocol AnnotationShape: Sendable {
     var extraHandles: [CGPoint] { get }
     /// The shape after dragging extra handle `index` to `point`.
     func movingHandle(_ index: Int, to point: CGPoint) -> any AnnotationShape
+    /// True when the extra handles replace the eight box handles (a line is aimed by its two ends, not resized as a box).
+    var handlesReplaceBounds: Bool { get }
 }
 
 public extension AnnotationShape {
     var shapeType: String { Self.typeID }
     var extraHandles: [CGPoint] { [] }
     func movingHandle(_ index: Int, to point: CGPoint) -> any AnnotationShape { self }
+    var handlesReplaceBounds: Bool { false }
 }
 
 /// A shape that works on the picture underneath it (blur, pixelate, spotlight, magnifier), so it needs to see it.

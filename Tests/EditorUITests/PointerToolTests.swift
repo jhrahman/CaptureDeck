@@ -133,3 +133,59 @@ struct BubbleToolTests {
         #expect(style.fillColor.alpha == 1 && style.textColor == AnnotationStyle.defaultTextColor && style.lineWidth > 0)
     }
 }
+
+@MainActor
+struct LineEditingTests {
+    private func makeDoc() -> (EditorDocument, Annotation) {
+        let doc = EditorDocument(original: UXSnapshotTests.sampleImage(), title: "t")
+        let line = Annotation(shape: LineShape(start: CGPoint(x: 100, y: 100), end: CGPoint(x: 400, y: 200)), style: EditorToolRegistry.arrow.defaultStyle)
+        doc.addAnnotation(line)
+        return (doc, line)
+    }
+    private func ctx(_ doc: EditorDocument) -> ToolContext { ToolContext(document: doc, zoom: 1, style: .default) }
+
+    @Test func aLineIsAimedByItsTwoEndsNotByABox() {
+        let line = LineShape(start: CGPoint(x: 1, y: 2), end: CGPoint(x: 30, y: 40))
+        #expect(line.extraHandles == [CGPoint(x: 1, y: 2), CGPoint(x: 30, y: 40)])
+        #expect(line.handlesReplaceBounds)
+        #expect(!RectangleShape(rect: CGRect(x: 0, y: 0, width: 5, height: 5)).handlesReplaceBounds)
+    }
+
+    @Test func draggingAnEndpointReaimsTheArrowAsOneUndoStep() {
+        let (doc, _) = makeDoc()
+        let tool = PointerTool()
+        let c = ctx(doc)
+        tool.mouseDown(at: CGPoint(x: 400, y: 200), context: c)
+        tool.mouseDragged(to: CGPoint(x: 450, y: 320), context: c)
+        tool.mouseUp(at: CGPoint(x: 450, y: 320), context: c)
+        let line = doc.annotations[0].shape as? LineShape
+        #expect(line?.start == CGPoint(x: 100, y: 100))
+        #expect(line?.end == CGPoint(x: 450, y: 320))
+        #expect(doc.undoNames.last == "Move Tail")
+        doc.undo()
+        #expect((doc.annotations[0].shape as? LineShape)?.end == CGPoint(x: 400, y: 200))
+    }
+
+    @Test func aDrawingToolHandsOverTheGestureWhenAnEndpointIsGrabbed() {
+        let (doc, _) = makeDoc()
+        let pointer = PointerTool()
+        #expect(pointer.grabs(CGPoint(x: 100, y: 100), context: ctx(doc)))
+        #expect(!pointer.grabs(CGPoint(x: 250, y: 150), context: ctx(doc)))     // the middle of the line is not a handle
+    }
+
+    @Test func shiftSnapsAnEndpointToFortyFiveDegrees() {
+        let snapped = PointerTool.snapped(CGPoint(x: 300, y: 110), around: CGPoint(x: 100, y: 100))
+        #expect(snapped.y == 100)                                                // nearly horizontal becomes horizontal
+        let diagonal = PointerTool.snapped(CGPoint(x: 200, y: 190), around: CGPoint(x: 100, y: 100))
+        #expect(abs(diagonal.x - 100) == abs(diagonal.y - 100))
+    }
+
+    @Test func deleteAndNudgeStillWorkWhileADrawingToolIsActive() {
+        let (doc, _) = makeDoc()
+        let pointer = PointerTool()
+        let nudge = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                                     characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 124)!
+        #expect(pointer.keyDown(nudge, context: ctx(doc)))
+        #expect((doc.annotations[0].shape as? LineShape)?.start == CGPoint(x: 101, y: 100))
+    }
+}
