@@ -9,7 +9,10 @@ import Settings
 
 /// Stable setting keys used by the app. (A key is also its UserDefaults key: never rename without a migration.)
 enum SettingID {
+    static let launchAtLogin = "general.launchAtLogin"
+    static let startMinimized = "general.startMinimized"
     static let captureSound = "general.captureSound"
+    static let soundName = "general.soundName"
 
     static let autoCopy = "capture.autoCopy"
     static let openEditor = "capture.openEditor"
@@ -62,8 +65,21 @@ enum AppSettings {
         var defs: [SettingDefinition] = []
 
         // General
-        defs.append(.init(id: SettingID.captureSound, section: .general, group: "Feedback", title: "Play a sound after each capture",
-                          defaultValue: .bool(true), control: .toggle))
+        defs += [
+            .init(id: SettingID.launchAtLogin, section: .general, group: "Startup", title: "Start CaptureDeck when I log in",
+                  help: "Adds CaptureDeck to your Login Items. macOS may ask you to approve it in System Settings > General > Login Items.",
+                  defaultValue: .bool(false), control: .toggle, order: 0),
+            .init(id: SettingID.startMinimized, section: .general, group: "Startup", title: "Start minimized in the menu bar",
+                  help: "Opens with only the menu bar icon. The capture panel stays hidden until you show it (from the menu bar icon or its hotkey).",
+                  defaultValue: .bool(false), control: .toggle, order: 1),
+            .init(id: SettingID.captureSound, section: .general, group: "Feedback", title: "Play a sound after each capture",
+                  defaultValue: .bool(true), control: .toggle, order: 0),
+            .init(id: SettingID.soundName, section: .general, group: "Feedback", title: "Capture sound",
+                  help: "You hear the new sound once when you press Apply.",
+                  defaultValue: .string("Pop"),
+                  control: .choice(["Pop", "Tink", "Glass", "Ping", "Purr", "Bottle"].map { .init($0, $0) }),
+                  dependsOn: SettingID.captureSound, order: 1),
+        ]
 
         // Capture
         defs += [

@@ -65,7 +65,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeys.bind(settingID: SettingID.togglePanelHotkey) { [panel] in panel?.toggle() }
         hotkeys.start()
 
-        panel.showAtLaunch()
+        panel.showAtLaunch(minimized: store.bool(SettingID.startMinimized))
+
+        syncLoginItem()
+        store.changes.filter { $0 == SettingID.launchAtLogin }.sink { [weak self] _ in self?.applyLoginItem() }.store(in: &subscriptions)
+        // Applying a new capture sound plays it once, so you hear what you chose.
+        store.changes.filter { $0 == SettingID.soundName }.sink { [weak self] _ in
+            guard let self else { return }
+            NSSound(named: NSSound.Name(self.store.string(SettingID.soundName)))?.play()
+        }.store(in: &subscriptions)
+    }
+
+    // MARK: Launch at login
+
+    private var changingLoginItem = false
+
+    /// The Settings window should show what macOS really has (the user can also change it in System Settings).
+    private func syncLoginItem() {
+        let status = LoginItem.status
+        changingLoginItem = true
+        store.set(status == .enabled || status == .requiresApproval, for: SettingID.launchAtLogin)
+        changingLoginItem = false
+        store.setNote(LoginItem.explanation(for: status), for: SettingID.launchAtLogin)
+    }
+
+    private func applyLoginItem() {
+        guard !changingLoginItem else { return }
+        do {
+            try LoginItem.setEnabled(store.bool(SettingID.launchAtLogin))
+            store.setNote(LoginItem.explanation(for: LoginItem.status), for: SettingID.launchAtLogin)
+        } catch {
+            // Put the switch back to what macOS really has, and say why.
+            let actual = LoginItem.status
+            changingLoginItem = true
+            store.set(actual == .enabled || actual == .requiresApproval, for: SettingID.launchAtLogin)
+            changingLoginItem = false
+            store.setNote("macOS did not allow this: \(error.localizedDescription)", for: SettingID.launchAtLogin)
+        }
     }
 
     /// Selection overlay behavior from Settings, read each time an overlay opens.

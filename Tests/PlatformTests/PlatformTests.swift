@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 import Carbon.HIToolbox
 import CoreModels
 import ImageIO
@@ -82,5 +83,20 @@ struct ImageImportTests {
         let loaded = try #require(ImageImport.load(from: url))
         #expect(loaded.pixelSize == CGSize(width: 50, height: 30))
         #expect(loaded.scale == 2)
+    }
+}
+
+struct LoginItemTests {
+    @Test func systemStatusesMapToOurs() {
+        #expect(LoginItem.status(from: .enabled) == .enabled)
+        #expect(LoginItem.status(from: .notRegistered) == .disabled)
+        #expect(LoginItem.status(from: .requiresApproval) == .requiresApproval)
+        #expect(LoginItem.status(from: .notFound) == .unavailable)
+    }
+
+    @Test func explanationsOnlyForCasesThatNeedOne() {
+        #expect(LoginItem.explanation(for: .enabled) == nil && LoginItem.explanation(for: .disabled) == nil)
+        #expect(LoginItem.explanation(for: .requiresApproval)?.contains("Login Items") == true)
+        #expect(LoginItem.explanation(for: .unavailable) != nil)
     }
 }

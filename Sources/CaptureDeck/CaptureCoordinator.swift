@@ -17,6 +17,7 @@ struct CaptureSettings {
     var format: ImageFileFormat
     var jpegQuality: Double
     var playSound: Bool
+    var soundName: String
 
     @MainActor
     init(store: SettingsStore) {
@@ -32,6 +33,7 @@ struct CaptureSettings {
         format = ImageFileFormat(rawValue: store.string(SettingID.format)) ?? .png
         jpegQuality = store.double(SettingID.jpegQuality)
         playSound = store.bool(SettingID.captureSound)
+        soundName = store.string(SettingID.soundName)
     }
 }
 
@@ -97,7 +99,7 @@ final class CaptureCoordinator {
             }
             if settings.autoSave { save(image, settings: settings) }
             if settings.openEditor { openInEditor?(image.withSource(nil)) }
-            if settings.playSound { NSSound(named: NSSound.Name("Tink"))?.play() }
+            if settings.playSound { NSSound(named: NSSound.Name(settings.soundName))?.play() }
         }
     }
 

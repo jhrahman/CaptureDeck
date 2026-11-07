@@ -69,10 +69,18 @@ final class CapturePanelController {
         if store.bool(SettingID.panelVisible) { panel.orderFrontRegardless() } else { panel.orderOut(nil) }
     }
 
-    /// The show/hide hotkey and menu item: flips the setting, which shows or hides the panel.
-    func toggle() { store.set(!store.bool(SettingID.panelVisible), for: SettingID.panelVisible) }
+    /// The show/hide hotkey and menu item. It flips what you actually see (the panel may be hidden by "start minimized"
+    /// while the setting still says "show"), then remembers the choice.
+    func toggle() {
+        let show = !panel.isVisible
+        store.set(show, for: SettingID.panelVisible)
+        if show { panel.orderFrontRegardless() } else { panel.orderOut(nil) }
+    }
 
-    func showAtLaunch() { applyVisibility() }
+    /// At launch the panel follows its "show" setting, unless the app was asked to start minimized in the menu bar.
+    func showAtLaunch(minimized: Bool) {
+        if minimized { panel.orderOut(nil) } else { applyVisibility() }
+    }
 
     /// Hide while a capture runs so the panel is never part of a screenshot.
     func suspend() async {
