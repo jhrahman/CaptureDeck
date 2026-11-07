@@ -41,7 +41,6 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         window.toolbar = toolbar
         window.toolbarStyle = .unified
 
-        viewController.onToolChanged = { [weak self] descriptor in self?.toolbarToolGroup?.selectedIndex = EditorToolRegistry.descriptors.firstIndex(of: descriptor) ?? 0 }
         viewController.scrollView.onFilesDropped = { [weak self] urls in self?.store?.open(urls: urls) }
         editorDocument.$title.sink { [weak window] in window?.title = $0 }.store(in: &cancellables)
         editorDocument.$fileURL.sink { [weak window] in window?.representedURL = $0 }.store(in: &cancellables)
@@ -145,11 +144,6 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         viewController.selectTool(id: id)
     }
 
-    @objc func chooseToolFromToolbar(_ sender: NSToolbarItemGroup) {
-        let descriptors = EditorToolRegistry.descriptors
-        guard descriptors.indices.contains(sender.selectedIndex) else { return }
-        viewController.selectTool(id: descriptors[sender.selectedIndex].id)
-    }
 
     @objc func saveDocument(_ sender: Any?) { save { _ in } }
     @objc func saveDocumentAs(_ sender: Any?) { saveAs { _ in } }
@@ -282,10 +276,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         .init(id: .save, label: "Save", symbols: ["square.and.arrow.down"], color: ToolIcons.save, action: #selector(saveDocument(_:))),
     ]
 
-    private var toolbarToolGroup: NSToolbarItemGroup?
-
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.tools, .space, .undo, .redo, .space, .cropSelection, .rotateLeft, .rotateRight, .flipH, .flipV, .space,
+        [.undo, .redo, .space, .cropSelection, .rotateLeft, .rotateRight, .flipH, .flipV, .space,
          .zoomOut, .zoomIn, .zoomFit, .zoomActual, .flexibleSpace, .copy, .save]
     }
 
@@ -295,18 +287,6 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
-        if identifier == .tools {
-            let descriptors = EditorToolRegistry.descriptors
-            let images = descriptors.map { d in ToolIcons.image(for: d) ?? NSImage() }     // each tool in its own color
-            let group = NSToolbarItemGroup(itemIdentifier: identifier, images: images, selectionMode: .selectOne,
-                                           labels: descriptors.map(\.title), target: self, action: #selector(chooseToolFromToolbar(_:)))
-            group.label = "Tools"
-            group.paletteLabel = "Tools"
-            group.selectedIndex = descriptors.firstIndex(of: viewController.activeTool.descriptor) ?? 0
-            for (item, d) in zip(group.subitems, descriptors) { item.toolTip = "\(d.title)  (\(d.key.uppercased()))" }
-            toolbarToolGroup = group
-            return group
-        }
         guard let entry = Self.entries.first(where: { $0.id == identifier }) else { return nil }
         let item = NSToolbarItem(itemIdentifier: identifier)
         item.label = entry.label
@@ -321,7 +301,6 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
 }
 
 private extension NSToolbarItem.Identifier {
-    static let tools = Self("tools")
     static let cropSelection = Self("cropSelection")
     static let undo = Self("undo")
     static let redo = Self("redo")

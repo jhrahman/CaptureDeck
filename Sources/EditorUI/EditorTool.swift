@@ -130,12 +130,12 @@ public enum EditorToolRegistry {
         defaultStyle: AnnotationStyle(strokeColor: AnnotationStyle.defaultStroke, lineWidth: 0, fontSize: 32),
         iconColor: "#0A84FF", propertyTitles: [.stroke: "Text", .fill: "Background", .width: "Border"])
     public static let step = EditorToolDescriptor(
-        id: "step", title: "Step Number", symbol: "number.circle.fill", key: "n", kind: .draw,
+        id: "step", title: "Step Number", symbol: "1.circle", key: "n", kind: .draw,
         styleProperties: [.fill, .stroke, .fontSize, .opacity],
         defaultStyle: AnnotationStyle(strokeColor: white, fillColor: AnnotationStyle.defaultStroke, lineWidth: 0, fontSize: 28),
         iconColor: "#FF453A", propertyTitles: [.fill: "Circle", .stroke: "Number", .fontSize: "Size"])
     public static let stepLetter = EditorToolDescriptor(
-        id: "stepLetter", title: "Step Letter", symbol: "a.circle.fill", key: "k", kind: .draw,
+        id: "stepLetter", title: "Step Letter", symbol: "a.circle", key: "k", kind: .draw,
         styleProperties: [.fill, .stroke, .fontSize, .opacity],
         defaultStyle: AnnotationStyle(strokeColor: white, fillColor: RGBAColor(hex: "#0A84FFFF") ?? .black, lineWidth: 0, fontSize: 28),
         iconColor: "#5E5CE6", propertyTitles: [.fill: "Circle", .stroke: "Letter", .fontSize: "Size"])
@@ -148,6 +148,16 @@ public enum EditorToolRegistry {
         id: "pixelate", title: "Pixelate", symbol: "square.grid.3x3.fill", key: "x", kind: .draw, styleProperties: [.strength],
         defaultStyle: AnnotationStyle(strokeColor: AnnotationStyle.defaultStroke, strength: 14),
         iconColor: "#A3E635", propertyTitles: [.strength: "Block size"])
+
+    /// The ribbon's sections, left to right. Every tool appears in exactly one.
+    public static let groups: [[EditorToolDescriptor]] = [
+        [pointer],
+        [rectangleSelect, freehandSelect],
+        [rectangle, roundedRectangle, ellipse],
+        [line, arrow, doubleArrow, pencil],
+        [text, step, stepLetter],
+        [highlighter, blur, pixelate, spotlight, magnifier],
+    ]
 
     /// Which tool draws each kind of shape, so selecting a shape can show that tool's properties and names.
     static let toolForShapeType: [String: EditorToolDescriptor] = [
@@ -167,7 +177,7 @@ public enum EditorToolRegistry {
     }
 
     public static let spotlight = EditorToolDescriptor(
-        id: "spotlight", title: "Spotlight", symbol: "viewfinder.circle.fill", key: "g", kind: .draw,
+        id: "spotlight", title: "Spotlight", symbol: "viewfinder.circle", key: "g", kind: .draw,
         styleProperties: [.stroke, .opacity, .cornerRadius],
         defaultStyle: AnnotationStyle(strokeColor: .black, opacity: 0.6, cornerRadius: 0),
         iconColor: "#94A3B8", propertyTitles: [.stroke: "Dim color", .opacity: "Dimming", .cornerRadius: "Rounding"])
@@ -177,11 +187,8 @@ public enum EditorToolRegistry {
         defaultStyle: AnnotationStyle(strokeColor: AnnotationStyle.defaultStroke, lineWidth: 4, strength: 2),
         iconColor: "#0EA5E9", propertyTitles: [.stroke: "Border"])
 
-    /// Every tool, in toolbar order.
-    public static let descriptors: [EditorToolDescriptor] = [
-        pointer, rectangleSelect, freehandSelect, rectangle, roundedRectangle, ellipse, line, arrow, doubleArrow, pencil, highlighter,
-        text, step, stepLetter, blur, pixelate, spotlight, magnifier,
-    ]
+    /// Every tool, in ribbon order. (Derived from `groups`, so the ribbon, the Tools menu and Tab-cycling always agree.)
+    public static let descriptors: [EditorToolDescriptor] = groups.flatMap { $0 }
     public static var defaultToolID: String { rectangleSelect.id }
 
     @MainActor
@@ -197,10 +204,10 @@ public enum EditorToolRegistry {
             ShapeDragTool(arrow) { a, b, snap in LineShape(start: a, end: ShapeDragTool.end(a, b, snap: snap), endHead: .filled) },
             ShapeDragTool(doubleArrow) { a, b, snap in LineShape(start: a, end: ShapeDragTool.end(a, b, snap: snap), startHead: .filled, endHead: .filled) },
             PencilTool(),
-            ShapeDragTool(highlighter) { a, b, square in HighlighterShape(rect: ShapeDragTool.rect(a, b, square: square)) },
             TextTool(),
             StepTool(step, letters: false),
             StepTool(stepLetter, letters: true),
+            ShapeDragTool(highlighter) { a, b, square in HighlighterShape(rect: ShapeDragTool.rect(a, b, square: square)) },
             ShapeDragTool(blur) { a, b, _ in BlurShape(rect: ShapeDragTool.rect(a, b, square: false)) },
             ShapeDragTool(pixelate) { a, b, _ in PixelateShape(rect: ShapeDragTool.rect(a, b, square: false)) },
             ShapeDragTool(spotlight) { a, b, square in SpotlightShape(rect: ShapeDragTool.rect(a, b, square: square)) },

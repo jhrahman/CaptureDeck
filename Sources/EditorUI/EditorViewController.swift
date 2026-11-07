@@ -19,6 +19,7 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
     /// Called when the active tool changes (to keep the toolbar in step).
     var onToolChanged: ((EditorToolDescriptor) -> Void)?
     private let optionsModel = ToolOptionsModel()
+    private let ribbonModel = ToolRibbonModel()
     private var textEditor: (view: NSTextView, annotationID: UUID?, rect: CGRect, style: AnnotationStyle)?
     private var optionsBar: NSHostingView<ToolOptionsView>?
     private var optionsHeight: NSLayoutConstraint?
@@ -60,11 +61,19 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
         let height = options.heightAnchor.constraint(equalToConstant: 38)
         optionsHeight = height
 
+        let ribbon = NSHostingView(rootView: ToolRibbonView(model: ribbonModel))
+        ribbon.translatesAutoresizingMaskIntoConstraints = false
+
+        container.addSubview(ribbon)
         container.addSubview(options)
         container.addSubview(scrollView)
         container.addSubview(bar)
         NSLayoutConstraint.activate([
-            options.topAnchor.constraint(equalTo: container.topAnchor),
+            ribbon.topAnchor.constraint(equalTo: container.topAnchor),
+            ribbon.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            ribbon.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            ribbon.heightAnchor.constraint(equalToConstant: 42),
+            options.topAnchor.constraint(equalTo: ribbon.bottomAnchor),
             options.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             options.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             height,
@@ -118,6 +127,8 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
                 self.syncOptions(selectedIDs: ids)
             }
             .store(in: &cancellables)
+        ribbonModel.selectedID = activeTool.descriptor.id
+        ribbonModel.onSelect = { [weak self] descriptor in self?.selectTool(id: descriptor.id) }
         optionsModel.onStyleEdited = { [weak self] style in self?.styleEdited(style) }
         optionsModel.onAction = { [weak self] action in self?.perform(action) }
         syncOptions()
@@ -150,6 +161,7 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
         activeTool.deactivate()
         activeTool = tool
         canvas.activeTool = tool
+        ribbonModel.selectedID = tool.descriptor.id
         onToolChanged?(tool.descriptor)
         syncOptions()
         canvas.needsDisplay = true
