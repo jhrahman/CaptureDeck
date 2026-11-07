@@ -9,6 +9,7 @@ Status: early development (Phase 0 - app shell). See [Project Plan.md](Project%2
 Requires macOS 13+ and Swift 6 (Xcode or Command Line Tools).
 
 ```sh
+./scripts/setup-dev-signing.sh  # once: stable local signing so Screen Recording permission survives rebuilds
 swift test                 # run unit tests
 ./scripts/build-app.sh     # builds build/CaptureDeck.app (universal arm64 + x86_64)
 open build/CaptureDeck.app # look for the icon in the menu bar

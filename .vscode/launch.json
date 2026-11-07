@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:CaptureDeck}",
+            "name": "Debug CaptureDeck",
+            "target": "CaptureDeck",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug CaptureDeck"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:CaptureDeck}",
+            "name": "Release CaptureDeck",
+            "target": "CaptureDeck",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release CaptureDeck"
+        }
+    ]
+}

@@ -28,7 +28,14 @@ iconutil -c icns "$ASSETS/AppIcon.iconset" -o "$APP/Contents/Resources/AppIcon.i
 # Menu bar template image (1x + 2x)
 cp "$ASSETS/menubarTemplate.png" "$ASSETS/menubarTemplate@2x.png" "$APP/Contents/Resources/"
 
-# Ad-hoc sign so macOS will run it locally (real signing/notarization comes in the release phase)
-codesign --force --sign - "$APP"
+# Sign. Prefer the stable local identity (scripts/setup-dev-signing.sh) so the Screen Recording
+# permission survives rebuilds; fall back to ad hoc (permission resets on every build).
+IDENTITY="${SIGN_IDENTITY:-CaptureDeck Dev}"
+if security find-identity -p codesigning | grep -q "\"$IDENTITY\""; then
+  codesign --force --sign "$IDENTITY" "$APP"
+else
+  echo "Note: '$IDENTITY' not found; signing ad hoc. Run scripts/setup-dev-signing.sh once."
+  codesign --force --sign - "$APP"
+fi
 echo "Built $APP"
 lipo -archs "$APP/Contents/MacOS/CaptureDeck"

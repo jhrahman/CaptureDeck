@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // Composition root: register capture modes here. Menu items and hotkeys are generated from this list.
     private let coordinator = CaptureCoordinator(modes: [
         FullScreenCaptureMode(),
+        RegionCaptureMode(selector: RegionSelector(style: OverlayStyle(accent: Theme.accent))),
     ])
     private var statusItem: StatusItemController?
 
