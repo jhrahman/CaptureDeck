@@ -2,6 +2,7 @@ import AppKit
 import CoreModels
 import EditorEngine
 import Platform
+import Settings
 import UniformTypeIdentifiers
 
 /// Owns every open editor window. Windows are grouped as native macOS tabs.
@@ -9,11 +10,17 @@ import UniformTypeIdentifiers
 @MainActor
 public final class EditorStore: NSObject {
     private var controllers: [EditorWindowController] = []
+    let settings: SettingsStore
+    /// Opens the Settings window (the editor menu's Settings… item).
+    public var openSettings: (() -> Void)?
 
-    public override init() {
+    public init(settings: SettingsStore) {
+        self.settings = settings
         super.init()
         NSApp.mainMenu = EditorMenu.build(store: self)
     }
+
+    @objc func showSettings(_ sender: Any?) { openSettings?() }
 
     public var hasOpenEditors: Bool { !controllers.isEmpty }
 
@@ -28,8 +35,11 @@ public final class EditorStore: NSObject {
     public func open(urls: [URL]) {
         for url in urls {
             guard let image = ImageImport.load(from: url) else { alertCannotOpen(url); continue }
-            // Opened files are not overwritten by Save: the document has no file URL until Save As.
-            show(EditorDocument(original: image, title: url.deletingPathExtension().lastPathComponent))
+            // By default Save does not overwrite a file opened from disk (no file URL until Save As);
+            // the "Save writes back to opened files" setting turns that on.
+            let writeBack = settings.bool("editor.saveOverwritesOpenedFile")
+            show(EditorDocument(original: image, title: url.deletingPathExtension().lastPathComponent,
+                                fileURL: writeBack ? url : nil))
         }
     }
 
@@ -52,7 +62,7 @@ public final class EditorStore: NSObject {
         let existing = controllers.last?.window
         controllers.append(controller)
 
-        NSApp.setActivationPolicy(.regular)
+        ActivationPolicyManager.shared.retain(controller)
         if let existing, let window = controller.window {
             existing.addTabbedWindow(window, ordered: .above)
             window.makeKeyAndOrderFront(nil)
@@ -64,7 +74,7 @@ public final class EditorStore: NSObject {
 
     func controllerDidClose(_ controller: EditorWindowController) {
         controllers.removeAll { $0 === controller }
-        if controllers.isEmpty { NSApp.setActivationPolicy(.accessory) }
+        ActivationPolicyManager.shared.release(controller)
     }
 
     // MARK: Hiding during captures

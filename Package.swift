@@ -19,18 +19,23 @@ let package = Package(
         .target(name: "CaptureEngine", dependencies: ["CoreModels"]),
         // System services: permissions, clipboard, global hotkeys.
         .target(name: "Platform", dependencies: ["CoreModels"]),
+        // Settings registry and typed store: the only code that touches UserDefaults. Features read values through it.
+        .target(name: "Settings", dependencies: ["CoreModels"]),
+        // The tabbed Settings window, generated from the registry.
+        .target(name: "SettingsUI", dependencies: ["Settings", "CoreModels", "DesignSystem", "Platform"]),
         // Editor document model, image operations, commands (undo/redo). No UI.
         .target(name: "EditorEngine", dependencies: ["CoreModels"]),
         // Editor windows, tabs, canvas, menus (AppKit).
-        .target(name: "EditorUI", dependencies: ["EditorEngine", "CoreModels", "DesignSystem", "Platform"]),
+        .target(name: "EditorUI", dependencies: ["EditorEngine", "CoreModels", "DesignSystem", "Platform", "Settings"]),
         // App shell and composition root.
         .executableTarget(
             name: "CaptureDeck",
-            dependencies: ["CoreModels", "CaptureEngine", "Platform", "DesignSystem", "EditorUI"]
+            dependencies: ["CoreModels", "CaptureEngine", "Platform", "DesignSystem", "EditorUI", "Settings", "SettingsUI"]
         ),
         .testTarget(name: "CoreModelsTests", dependencies: ["CoreModels"]),
         .testTarget(name: "DesignSystemTests", dependencies: ["DesignSystem"]),
         .testTarget(name: "CaptureEngineTests", dependencies: ["CaptureEngine", "CoreModels"]),
+        .testTarget(name: "SettingsTests", dependencies: ["Settings", "CoreModels"]),
         .testTarget(name: "EditorEngineTests", dependencies: ["EditorEngine", "CoreModels"]),
         .testTarget(name: "PlatformTests", dependencies: ["Platform", "CoreModels"]),
     ]

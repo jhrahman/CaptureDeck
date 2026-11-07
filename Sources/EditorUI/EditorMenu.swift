@@ -22,6 +22,8 @@ enum EditorMenu {
         }
 
         let app = submenu("CaptureDeck")
+        add("Settings…", to: app, action: #selector(EditorStore.showSettings(_:)), key: ",", target: store)
+        app.addItem(.separator())
         add("Quit CaptureDeck", to: app, action: #selector(NSApplication.terminate(_:)), key: "q")
 
         let file = submenu("File")

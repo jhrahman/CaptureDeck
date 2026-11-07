@@ -50,22 +50,25 @@ struct FixedSizeSelectionModelTests {
     }
 }
 
-struct FixedSizePreferenceTests {
-    @Test func parsesAndFormats() {
-        #expect(FixedSizePreference.parse("800x600") == CGSize(width: 800, height: 600))
-        #expect(FixedSizePreference.parse("garbage") == nil)
-        #expect(FixedSizePreference.parse("0x10") == nil)
-        #expect(FixedSizePreference.format(CGSize(width: 1280, height: 720)) == "1280x720")
+struct FixedSizeTextTests {
+    @Test func parsesSingleSizes() {
+        #expect(FixedSizeText.parse("800x600") == CGSize(width: 800, height: 600))
+        #expect(FixedSizeText.parse(" 1280 × 720 ") == CGSize(width: 1280, height: 720))
+        #expect(FixedSizeText.parse("garbage") == nil)
+        #expect(FixedSizeText.parse("0x10") == nil)
+        #expect(FixedSizeText.parse("99999x10") == nil)
     }
 
-    @Test func persistsAndFallsBack() {
-        let suite = "CaptureDeckTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let fallback = CGSize(width: 640, height: 480)
-        #expect(FixedSizePreference.load(default: fallback, defaults: defaults) == fallback)
-        FixedSizePreference.save(CGSize(width: 1024, height: 768), defaults: defaults)
-        #expect(FixedSizePreference.load(default: fallback, defaults: defaults) == CGSize(width: 1024, height: 768))
+    @Test func parsesListsSkippingBadEntries() {
+        let list = FixedSizeText.parseList("640x480, nope, 1280x720;1920x1080")
+        #expect(list == [CGSize(width: 640, height: 480), CGSize(width: 1280, height: 720), CGSize(width: 1920, height: 1080)])
+        #expect(FixedSizeText.parseList("").isEmpty)
+    }
+
+    @Test func formatsRoundTrip() {
+        let sizes = [CGSize(width: 640, height: 480), CGSize(width: 1280, height: 720)]
+        #expect(FixedSizeText.format(sizes) == "640x480, 1280x720")
+        #expect(FixedSizeText.parseList(FixedSizeText.format(sizes)) == sizes)
     }
 }
 
@@ -94,7 +97,7 @@ struct FixedSizeCaptureModeTests {
         let box = KindBox()
         let presets = [CGSize(width: 10, height: 10)]
         let mode = FixedSizeCaptureMode(
-            presets: presets, selector: KindRecordingSelector(box: box),
+            presets: { presets }, selector: KindRecordingSelector(box: box),
             displaysProvider: { [DisplayInfo(id: 1, frame: CGRect(x: 0, y: 0, width: 20, height: 10))] })
         _ = try? await mode.run(CaptureContext(grabber: FlatGrabber(), includeCursor: false))
         #expect(await box.kind == .fixedSize(presets: presets))

@@ -20,14 +20,31 @@ enum CaptureModeIcon {
     }
 }
 
+/// Button size choices on the Capture Panel tab.
+enum PanelButtonSize: String {
+    case small, medium, large
+
+    var side: CGFloat {
+        switch self {
+        case .small: 28
+        case .medium: 34
+        case .large: 42
+        }
+    }
+    var iconSize: CGFloat { side * 0.47 }
+}
+
 struct CapturePanelView: View {
     let modes: [any CaptureMode]
+    let buttonSize: PanelButtonSize
+    /// Display text of each mode's current shortcut, for tooltips.
+    let shortcuts: [String: String]
     let run: (String) -> Void
 
     var body: some View {
         HStack(spacing: 2) {
             ForEach(Array(modes.enumerated()), id: \.offset) { _, mode in
-                PanelButton(symbol: CaptureModeIcon.symbol(for: mode.id), title: mode.title, shortcut: mode.defaultShortcut?.displayString) {
+                PanelButton(symbol: CaptureModeIcon.symbol(for: mode.id), title: mode.title, shortcut: shortcut(for: mode), size: buttonSize) {
                     run(mode.id)
                 }
             }
@@ -37,20 +54,23 @@ struct CapturePanelView: View {
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color(Theme.border), lineWidth: 1))
         .padding(4)   // room for the window shadow
     }
+
+    private func shortcut(for mode: any CaptureMode) -> String? { shortcuts[mode.id] }
 }
 
 private struct PanelButton: View {
     let symbol: String
     let title: String
     let shortcut: String?
+    let size: PanelButtonSize
     let action: () -> Void
     @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 16, weight: .regular))
-                .frame(width: 34, height: 34)
+                .font(.system(size: size.iconSize, weight: .regular))
+                .frame(width: size.side, height: size.side)
                 .foregroundStyle(hovering ? Color(Theme.textOnAccent) : Color(Theme.textPrimary))
                 .background(hovering ? Color(Theme.accent) : Color.clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }

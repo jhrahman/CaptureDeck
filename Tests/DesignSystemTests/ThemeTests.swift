@@ -29,23 +29,11 @@ struct ThemeTests {
         #expect(AppearancePreference.light.appearance?.name == .aqua)
     }
 
-    @Test func controllerDefaultsToSystemAndPersists() {
-        let suite = "CaptureDeckTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
-
-        let controller = AppearanceController(defaults: defaults)
+    @Test func controllerStartsWithGivenPreferenceAndUpdates() {
+        let controller = AppearanceController()
         #expect(controller.preference == .system)
-
         controller.set(.darkAsh)
-        #expect(AppearanceController(defaults: defaults).preference == .darkAsh)
-    }
-
-    @Test func controllerIgnoresUnknownStoredValue() {
-        let suite = "CaptureDeckTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
-        defaults.set("nonsense", forKey: AppearanceController.defaultsKey)
-        #expect(AppearanceController(defaults: defaults).preference == .system)
+        #expect(controller.preference == .darkAsh)
+        #expect(AppearanceController(preference: .light).preference == .light)
     }
 }

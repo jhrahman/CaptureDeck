@@ -88,12 +88,13 @@ public struct FixedSizeCaptureMode: CaptureMode {
         CGSize(width: 1280, height: 720), CGSize(width: 1920, height: 1080),
     ]
 
-    private let presets: [CGSize]
+    private let presets: @MainActor @Sendable () -> [CGSize]
     private let displaysProvider: @Sendable () async -> [DisplayInfo]
     private let selector: any RegionSelecting
 
+    /// `presets` is read each time the mode runs, so edits in Settings apply to the next capture.
     public init(
-        presets: [CGSize] = FixedSizeCaptureMode.defaultPresets,
+        presets: @escaping @MainActor @Sendable () -> [CGSize] = { FixedSizeCaptureMode.defaultPresets },
         selector: any RegionSelecting = RegionSelector(),
         displaysProvider: @escaping @Sendable () async -> [DisplayInfo] = DisplayLocator.allDisplays
     ) {
@@ -103,7 +104,9 @@ public struct FixedSizeCaptureMode: CaptureMode {
     }
 
     public func run(_ context: CaptureContext) async throws -> CaptureResult {
-        try await SnapshotRegionCapture.run(context, kind: .fixedSize(presets: presets), selector: selector, displaysProvider: displaysProvider)
+        let list = await presets()
+        let usable = list.isEmpty ? FixedSizeCaptureMode.defaultPresets : list
+        return try await SnapshotRegionCapture.run(context, kind: .fixedSize(presets: usable), selector: selector, displaysProvider: displaysProvider)
     }
 }
 

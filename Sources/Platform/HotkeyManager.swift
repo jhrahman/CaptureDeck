@@ -58,6 +58,11 @@ public final class HotkeyManager {
         UnregisterEventHotKey(entry.ref)
     }
 
+    /// Unregisters every hotkey (used while the user is recording a new shortcut).
+    public func unregisterAll() {
+        for name in Array(idsByName.keys) { unregister(name: name) }
+    }
+
     func fire(id: UInt32) {
         entries[id]?.handler()
     }

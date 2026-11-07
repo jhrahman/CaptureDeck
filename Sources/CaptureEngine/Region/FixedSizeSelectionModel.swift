@@ -50,23 +50,21 @@ struct FixedSizeSelectionModel {
     }
 }
 
-/// Remembers the last fixed size between captures ("800x600").
-public enum FixedSizePreference {
-    static let key = "capture.fixedSizePx"
-
-    static func parse(_ text: String) -> CGSize? {
-        let parts = text.split(separator: "x")
-        guard parts.count == 2, let w = Double(parts[0]), let h = Double(parts[1]), w >= 1, h >= 1 else { return nil }
-        return CGSize(width: w, height: h)
+/// Text form of pixel sizes: "800x600" and lists such as "640x480, 1280x720".
+public enum FixedSizeText {
+    public static func parse(_ text: String) -> CGSize? {
+        let parts = text.lowercased().replacingOccurrences(of: "×", with: "x")
+            .split(separator: "x").map { $0.trimmingCharacters(in: .whitespaces) }
+        guard parts.count == 2, let w = Double(parts[0]), let h = Double(parts[1]),
+              w >= 1, h >= 1, w <= 30_000, h <= 30_000 else { return nil }
+        return CGSize(width: w.rounded(), height: h.rounded())
     }
 
-    static func format(_ size: CGSize) -> String { "\(Int(size.width))x\(Int(size.height))" }
-
-    public static func load(default fallback: CGSize, defaults: UserDefaults = .standard) -> CGSize {
-        defaults.string(forKey: key).flatMap(parse) ?? fallback
+    /// Entries that are not a valid size are skipped.
+    public static func parseList(_ text: String) -> [CGSize] {
+        text.split(whereSeparator: { $0 == "," || $0 == ";" || $0 == "\n" }).compactMap { parse(String($0)) }
     }
 
-    public static func save(_ size: CGSize, defaults: UserDefaults = .standard) {
-        defaults.set(format(size), forKey: key)
-    }
+    public static func format(_ size: CGSize) -> String { "\(Int(size.width))x\(Int(size.height))" }
+    public static func format(_ sizes: [CGSize]) -> String { sizes.map(format).joined(separator: ", ") }
 }

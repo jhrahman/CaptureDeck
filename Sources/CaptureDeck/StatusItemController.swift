@@ -1,69 +1,83 @@
 import AppKit
 import CaptureEngine
+import Combine
 import CoreModels
 import DesignSystem
+import Settings
 
-/// Owns the menu bar icon and its menu.
+/// Owns the menu bar icon and its menu. The menu is rebuilt whenever a shortcut or the theme changes.
 @MainActor
 final class StatusItemController: NSObject, NSMenuDelegate {
-    static let togglePanelShortcut = KeyShortcut.digit(0, [.control, .shift])
-
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-    private let appearance: AppearanceController
     private let coordinator: CaptureCoordinator
     private let panel: CapturePanelController
+    private let store: SettingsStore
+    private let openSettings: () -> Void
     private var toggleItem: NSMenuItem?
+    private var subscription: AnyCancellable?
 
-    init(appearance: AppearanceController, coordinator: CaptureCoordinator, panel: CapturePanelController) {
-        self.appearance = appearance
+    init(coordinator: CaptureCoordinator, panel: CapturePanelController, store: SettingsStore, openSettings: @escaping () -> Void) {
         self.coordinator = coordinator
         self.panel = panel
+        self.store = store
+        self.openSettings = openSettings
         super.init()
         statusItem.button?.image = Self.menuBarImage()
         statusItem.button?.toolTip = "CaptureDeck"
         rebuildMenu()
+        subscription = store.changes
+            .filter { $0.hasPrefix("hotkey.") || $0 == SettingID.appearance }
+            .sink { [weak self] _ in MainActor.assumeIsolated { self?.rebuildMenu() } }
+    }
+
+    private func applyShortcut(_ shortcut: KeyShortcut?, to item: NSMenuItem) {
+        guard let shortcut else { return }
+        item.keyEquivalent = shortcut.keyLabel.lowercased()
+        var mask: NSEvent.ModifierFlags = []
+        if shortcut.modifiers.contains(.command) { mask.insert(.command) }
+        if shortcut.modifiers.contains(.option) { mask.insert(.option) }
+        if shortcut.modifiers.contains(.control) { mask.insert(.control) }
+        if shortcut.modifiers.contains(.shift) { mask.insert(.shift) }
+        item.keyEquivalentModifierMask = mask
     }
 
     private func rebuildMenu() {
         let menu = NSMenu()
+        menu.delegate = self
 
-        // One item per registered capture mode, showing its shortcut.
+        // One item per registered capture mode, showing its current shortcut.
         for mode in coordinator.modes {
-            let item = NSMenuItem(title: mode.title, action: #selector(capture(_:)), keyEquivalent: mode.defaultShortcut?.keyLabel ?? "")
+            let item = NSMenuItem(title: mode.title, action: #selector(capture(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = mode.id
-            if let shortcut = mode.defaultShortcut {
-                var mask: NSEvent.ModifierFlags = []
-                if shortcut.modifiers.contains(.command) { mask.insert(.command) }
-                if shortcut.modifiers.contains(.option) { mask.insert(.option) }
-                if shortcut.modifiers.contains(.control) { mask.insert(.control) }
-                if shortcut.modifiers.contains(.shift) { mask.insert(.shift) }
-                item.keyEquivalentModifierMask = mask
-            }
+            applyShortcut(store.shortcut(SettingID.hotkey(mode.id)), to: item)
             menu.addItem(item)
         }
         menu.addItem(.separator())
 
-        let toggle = NSMenuItem(title: "Hide Capture Panel", action: #selector(togglePanel), keyEquivalent: Self.togglePanelShortcut.keyLabel)
-        toggle.keyEquivalentModifierMask = [.control, .shift]
+        let toggle = NSMenuItem(title: "Hide Capture Panel", action: #selector(togglePanel), keyEquivalent: "")
         toggle.target = self
+        applyShortcut(store.shortcut(SettingID.togglePanelHotkey), to: toggle)
         toggleItem = toggle
         menu.addItem(toggle)
-        menu.delegate = self
 
         let appearanceItem = NSMenuItem(title: "Appearance", action: nil, keyEquivalent: "")
         let submenu = NSMenu()
+        let current = store.string(SettingID.appearance)
         for option in AppearancePreference.allCases {
             let item = NSMenuItem(title: option.title, action: #selector(selectAppearance(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = option.rawValue
-            item.state = option == appearance.preference ? .on : .off
+            item.state = option.rawValue == current ? .on : .off
             submenu.addItem(item)
         }
         appearanceItem.submenu = submenu
         menu.addItem(appearanceItem)
 
         menu.addItem(.separator())
+        let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
+        settings.target = self
+        menu.addItem(settings)
         menu.addItem(NSMenuItem(title: "Quit CaptureDeck", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
     }
@@ -72,6 +86,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         toggleItem?.title = panel.isVisible ? "Hide Capture Panel" : "Show Capture Panel"
     }
 
+    @objc private func showSettings() { openSettings() }
     @objc private func togglePanel() { panel.toggle() }
 
     @objc private func capture(_ sender: NSMenuItem) {
@@ -83,10 +98,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     @objc private func selectAppearance(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String,
-              let option = AppearancePreference(rawValue: raw) else { return }
-        appearance.set(option)
-        rebuildMenu()
+        guard let raw = sender.representedObject as? String else { return }
+        store.set(raw, for: SettingID.appearance)
     }
 
     /// Brand template image from the app bundle; SF Symbol fallback when run outside a bundle (`swift run`).

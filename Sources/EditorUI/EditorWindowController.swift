@@ -116,7 +116,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     // MARK: Closing
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        let ask = UserDefaults.standard.object(forKey: "editor.askBeforeDiscard") as? Bool ?? true
+        let ask = store?.settings.bool("editor.askBeforeDiscard") ?? true
         guard editorDocument.isDirty, ask, !closeConfirmed else { return true }
 
         let alert = NSAlert()

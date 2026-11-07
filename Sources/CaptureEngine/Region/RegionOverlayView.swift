@@ -17,6 +17,7 @@ final class RegionOverlayView: NSView {
     private var globalOrigin = CGPoint.zero
     private let snapshot: CapturedImage
     private let style: OverlayStyle
+    private let options: OverlayOptions
     private var mouse: CGPoint?
 
     var onClaim: (() -> Void)?
@@ -30,27 +31,28 @@ final class RegionOverlayView: NSView {
     var isLocked = false { didSet { needsDisplay = true } }
 
     private static let loupeSize: CGFloat = 128
-    private static let loupeSourcePoints: CGFloat = 16   // 8x magnification
 
-    init(frame: CGRect, snapshot: CapturedImage, style: OverlayStyle, kind: RegionSelectionKind) {
+    init(frame: CGRect, snapshot: CapturedImage, style: OverlayStyle, options: OverlayOptions, kind: RegionSelectionKind) {
         let bounds = CGRect(origin: .zero, size: frame.size)
         self.model = RegionSelectionModel(bounds: bounds)
         self.snapshot = snapshot
         self.style = style
+        self.options = options
         super.init(frame: frame)
         if case .freehand = kind { self.freehand = FreehandSelectionModel(bounds: bounds) }
         if case .fixedSize(let presets) = kind {
             self.presets = presets
-            let initial = FixedSizePreference.load(default: presets.first ?? CGSize(width: 800, height: 600))
+            let initial = options.lastFixedSize ?? presets.first ?? CGSize(width: 800, height: 600)
             self.fixed = FixedSizeSelectionModel(bounds: bounds, scale: snapshot.scale, sizePx: initial)
         }
     }
 
     /// Window/object mode.
-    init(frame: CGRect, snapshot: CapturedImage, style: OverlayStyle, finder: any PickTargetFinder, globalOrigin: CGPoint) {
+    init(frame: CGRect, snapshot: CapturedImage, style: OverlayStyle, options: OverlayOptions, finder: any PickTargetFinder, globalOrigin: CGPoint) {
         self.model = RegionSelectionModel(bounds: CGRect(origin: .zero, size: frame.size))
         self.snapshot = snapshot
         self.style = style
+        self.options = options
         self.finder = finder
         self.globalOrigin = globalOrigin
         super.init(frame: frame)
@@ -172,7 +174,7 @@ final class RegionOverlayView: NSView {
 
     private func applyFixedSize(_ size: CGSize) {
         fixed?.setSize(px: size)
-        if let now = fixed?.sizePx { FixedSizePreference.save(now) }
+        if let now = fixed?.sizePx { options.onFixedSizeChanged?(now) }
         needsDisplay = true
     }
 
@@ -197,7 +199,7 @@ final class RegionOverlayView: NSView {
             let dy: CGFloat = event.keyCode == 126 ? -step : (event.keyCode == 125 ? step : 0)
             if flags.contains(.shift) {           // Shift + arrows: change the size, one pixel at a time
                 fixed?.resize(dxPx: dx, dyPx: dy)
-                if let now = fixed?.sizePx { FixedSizePreference.save(now) }
+                if let now = fixed?.sizePx { options.onFixedSizeChanged?(now) }
             } else {
                 fixed?.nudge(dx: dx, dy: dy)
             }
@@ -289,7 +291,7 @@ final class RegionOverlayView: NSView {
             dim.appendRect(selection)
             dim.windingRule = .evenOdd
         }
-        NSColor.black.withAlphaComponent(0.4).setFill()
+        NSColor.black.withAlphaComponent(options.dimAlpha).setFill()
         dim.fill()
         guard !isLocked else { return }
 
@@ -310,7 +312,7 @@ final class RegionOverlayView: NSView {
             drawPill(pick.candidates.count > 1 ? "Click to capture   ↑ ↓ choose parent / child   Esc cancel"
                                                 : "Click to capture a window   Esc cancel",
                      at: CGPoint(x: bounds.midX - 150, y: 24))
-        } else if let mouse {
+        } else if let mouse, options.showMagnifier {
             drawLoupe(at: mouse)
         }
     }
@@ -342,7 +344,7 @@ final class RegionOverlayView: NSView {
         let loupe = CGRect(origin: origin, size: CGSize(width: size, height: size))
 
         // Source pixels around the cursor, kept inside the image.
-        let n = Int((Self.loupeSourcePoints * snapshot.scale).rounded())
+        let n = max(1, Int((Self.loupeSize / CGFloat(options.magnifierZoom) * snapshot.scale).rounded()))
         let cx = Int((point.x * snapshot.scale).rounded()), cy = Int((point.y * snapshot.scale).rounded())
         let x = min(max(cx - n / 2, 0), max(snapshot.cgImage.width - n, 0))
         let y = min(max(cy - n / 2, 0), max(snapshot.cgImage.height - n, 0))

@@ -2,35 +2,36 @@ import AppKit
 import CaptureEngine
 import CoreModels
 import Platform
+import Settings
 
-/// User-facing capture options. Backed by UserDefaults; a Settings screen will edit these later.
+/// The capture options in effect for one capture, read from the Settings store at that moment
+/// (so changes made in Settings apply to the very next capture).
 struct CaptureSettings {
-    var autoCopyToClipboard = true
-    var includeCursor = false
-    var delaySeconds = 0
-    var openEditor = true
-    var autoSave = false
-    var saveFolder = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first!
-        .appendingPathComponent("CaptureDeck", isDirectory: true)
-    var fileTemplate = FilenameTemplate.defaultTemplate
-    var format = ImageFileFormat.png
+    var autoCopyToClipboard: Bool
+    var includeCursor: Bool
+    var delaySeconds: Int
+    var openEditor: Bool
+    var autoSave: Bool
+    var saveFolder: URL
+    var fileTemplate: String
+    var format: ImageFileFormat
+    var jpegQuality: Double
+    var playSound: Bool
 
-    static func load(from defaults: UserDefaults = .standard) -> CaptureSettings {
-        var s = CaptureSettings()
-        func bool(_ key: String) -> Bool? { defaults.object(forKey: key) == nil ? nil : defaults.bool(forKey: key) }
-        if let v = bool("capture.autoCopy") { s.autoCopyToClipboard = v }
-        if let v = bool("capture.includeCursor") { s.includeCursor = v }
-        if let v = bool("capture.autoSave") { s.autoSave = v }
-        if let v = bool("capture.openEditor") { s.openEditor = v }
-        if defaults.object(forKey: "capture.delaySeconds") != nil {
-            s.delaySeconds = min(max(defaults.integer(forKey: "capture.delaySeconds"), 0), 30)
-        }
-        if let path = defaults.string(forKey: "capture.saveFolder"), !path.isEmpty {
-            s.saveFolder = URL(fileURLWithPath: (path as NSString).expandingTildeInPath, isDirectory: true)
-        }
-        if let t = defaults.string(forKey: "capture.fileTemplate"), !t.isEmpty { s.fileTemplate = t }
-        if let f = defaults.string(forKey: "capture.format").flatMap(ImageFileFormat.init(rawValue:)) { s.format = f }
-        return s
+    @MainActor
+    init(store: SettingsStore) {
+        autoCopyToClipboard = store.bool(SettingID.autoCopy)
+        includeCursor = store.bool(SettingID.includeCursor)
+        delaySeconds = store.int(SettingID.delaySeconds)
+        openEditor = store.bool(SettingID.openEditor)
+        autoSave = store.bool(SettingID.autoSave)
+        let folder = store.string(SettingID.saveFolder)
+        saveFolder = URL(fileURLWithPath: (folder as NSString).expandingTildeInPath, isDirectory: true)
+        let template = store.string(SettingID.fileTemplate)
+        fileTemplate = template.isEmpty ? FilenameTemplate.defaultTemplate : template
+        format = ImageFileFormat(rawValue: store.string(SettingID.format)) ?? .png
+        jpegQuality = store.double(SettingID.jpegQuality)
+        playSound = store.bool(SettingID.captureSound)
     }
 }
 
@@ -42,6 +43,7 @@ final class CaptureCoordinator {
     private let grabber: any ScreenGrabber
     private let clipboard: ClipboardManager
     private let lastCapture: LastCaptureStore
+    private let store: SettingsStore
     private var isCapturing = false
     /// Hooks around the actual capture (the panel hides itself so it is not in the screenshot).
     var beforeCapture: (@MainActor () async -> Void)?
@@ -49,9 +51,10 @@ final class CaptureCoordinator {
     /// Called with each finished capture when "open in editor" is on.
     var openInEditor: (@MainActor (CapturedImage) -> Void)?
 
-    init(modes: [any CaptureMode], lastCapture: LastCaptureStore, grabber: any ScreenGrabber = ScreenCaptureKitGrabber(), clipboard: ClipboardManager = ClipboardManager()) {
+    init(modes: [any CaptureMode], lastCapture: LastCaptureStore, store: SettingsStore, grabber: any ScreenGrabber = ScreenCaptureKitGrabber(), clipboard: ClipboardManager = ClipboardManager()) {
         self.modes = modes
         self.lastCapture = lastCapture
+        self.store = store
         self.grabber = grabber
         self.clipboard = clipboard
     }
@@ -69,7 +72,7 @@ final class CaptureCoordinator {
         guard ensurePermission() else { return }
         if mode.wantsAccessibility { offerAccessibilityOnce() }
 
-        let settings = CaptureSettings.load()
+        let settings = CaptureSettings(store: store)
         if settings.delaySeconds > 0 { await CountdownHUD().run(seconds: settings.delaySeconds) }
         await beforeCapture?()
         defer { afterCapture?() }
@@ -94,7 +97,7 @@ final class CaptureCoordinator {
             }
             if settings.autoSave { save(image, settings: settings) }
             if settings.openEditor { openInEditor?(image.withSource(nil)) }
-            NSSound(named: NSSound.Name("Tink"))?.play()
+            if settings.playSound { NSSound(named: NSSound.Name("Tink"))?.play() }
         }
     }
 
@@ -102,7 +105,7 @@ final class CaptureCoordinator {
     private func save(_ image: CapturedImage, settings: CaptureSettings) {
         Task.detached {
             do {
-                try FileSaver().save(image, to: settings.saveFolder, template: settings.fileTemplate, format: settings.format)
+                try FileSaver().save(image, to: settings.saveFolder, template: settings.fileTemplate, format: settings.format, jpegQuality: settings.jpegQuality)
             } catch {
                 await self.showSaveError(error, folder: settings.saveFolder)
             }
@@ -120,14 +123,12 @@ final class CaptureCoordinator {
 
     // MARK: Permission
 
-    private static let askedKey = "permission.screenRecording.asked"
-
     /// Returns true when capture may proceed. On the very first attempt this triggers the
     /// system prompt; afterwards it explains how to enable the permission.
     private func ensurePermission() -> Bool {
         if ScreenRecordingPermission.isGranted { return true }
-        if !UserDefaults.standard.bool(forKey: Self.askedKey) {
-            UserDefaults.standard.set(true, forKey: Self.askedKey)
+        if !store.bool(SettingID.screenRecordingAsked) {
+            store.set(true, for: SettingID.screenRecordingAsked)
             if ScreenRecordingPermission.request() { return true }
             return false  // system prompt is showing; the user retries after allowing
         }
@@ -135,13 +136,11 @@ final class CaptureCoordinator {
         return false
     }
 
-    private static let axAskedKey = "permission.accessibility.asked"
-
     /// Accessibility is optional (window/object capture falls back to whole windows),
     /// so ask once and carry on without blocking the capture.
     private func offerAccessibilityOnce() {
-        guard !AccessibilityPermission.isGranted, !UserDefaults.standard.bool(forKey: Self.axAskedKey) else { return }
-        UserDefaults.standard.set(true, forKey: Self.axAskedKey)
+        guard !AccessibilityPermission.isGranted, !store.bool(SettingID.accessibilityAsked) else { return }
+        store.set(true, for: SettingID.accessibilityAsked)
         AccessibilityPermission.requestPrompt()
     }
 

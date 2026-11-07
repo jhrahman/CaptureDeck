@@ -24,24 +24,17 @@ public enum AppearancePreference: String, CaseIterable, Sendable {
     }
 }
 
-/// Stores the user's choice and applies it app-wide.
+/// Applies the chosen look app-wide. The choice itself is stored by the Settings store.
 @MainActor
 public final class AppearanceController {
-    public static let defaultsKey = "appearance.preference"
-
-    private let defaults: UserDefaults
-
     public private(set) var preference: AppearancePreference
 
-    public init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        let stored = defaults.string(forKey: Self.defaultsKey)
-        self.preference = stored.flatMap(AppearancePreference.init(rawValue:)) ?? .system
+    public init(preference: AppearancePreference = .system) {
+        self.preference = preference
     }
 
     public func set(_ newValue: AppearancePreference) {
         preference = newValue
-        defaults.set(newValue.rawValue, forKey: Self.defaultsKey)
         apply()
     }
 

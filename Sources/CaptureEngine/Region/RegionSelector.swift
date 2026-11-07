@@ -4,15 +4,19 @@ import CoreModels
 /// The real selection UI: a full-screen overlay on every display.
 public struct RegionSelector: RegionSelecting {
     private let style: OverlayStyle
+    private let options: @MainActor @Sendable () -> OverlayOptions
 
-    public init(style: OverlayStyle = OverlayStyle()) { self.style = style }
+    public init(style: OverlayStyle = OverlayStyle(), options: @escaping @MainActor @Sendable () -> OverlayOptions = { OverlayOptions() }) {
+        self.style = style
+        self.options = options
+    }
 
     public func selectRegion(on snapshots: [DisplaySnapshot], kind: RegionSelectionKind) async throws -> CaptureTarget {
-        try await RegionSelectionSession(snapshots: snapshots, style: style, mode: .region(kind)).run()
+        try await RegionSelectionSession(snapshots: snapshots, style: style, options: options, mode: .region(kind)).run()
     }
 
     public func pickTarget(on snapshots: [DisplaySnapshot], finder: any PickTargetFinder) async throws -> CaptureTarget {
-        try await RegionSelectionSession(snapshots: snapshots, style: style, mode: .pick(finder)).run()
+        try await RegionSelectionSession(snapshots: snapshots, style: style, options: options, mode: .pick(finder)).run()
     }
 }
 
@@ -33,14 +37,16 @@ private final class RegionSelectionSession {
     private let snapshots: [DisplaySnapshot]
     private let style: OverlayStyle
     private let mode: SessionMode
+    private let options: OverlayOptions
     private var windows: [OverlayWindow] = []
     private var views: [RegionOverlayView] = []
     private var continuation: CheckedContinuation<CaptureTarget, any Error>?
 
-    init(snapshots: [DisplaySnapshot], style: OverlayStyle, mode: SessionMode) {
+    init(snapshots: [DisplaySnapshot], style: OverlayStyle, options: @MainActor @Sendable () -> OverlayOptions, mode: SessionMode) {
         self.snapshots = snapshots
         self.style = style
         self.mode = mode
+        self.options = options()
     }
 
     func run() async throws -> CaptureTarget {
@@ -69,9 +75,9 @@ private final class RegionSelectionSession {
             let overlay: RegionOverlayView
             switch mode {
             case .region(let kind):
-                overlay = RegionOverlayView(frame: backdrop.bounds, snapshot: snapshot.image, style: style, kind: kind)
+                overlay = RegionOverlayView(frame: backdrop.bounds, snapshot: snapshot.image, style: style, options: options, kind: kind)
             case .pick(let finder):
-                overlay = RegionOverlayView(frame: backdrop.bounds, snapshot: snapshot.image, style: style, finder: finder, globalOrigin: snapshot.globalBounds.origin)
+                overlay = RegionOverlayView(frame: backdrop.bounds, snapshot: snapshot.image, style: style, options: options, finder: finder, globalOrigin: snapshot.globalBounds.origin)
                 overlay.onPick = { [weak self] candidate in self?.finish(.success(Self.target(for: candidate, on: snapshot))) }
             }
             overlay.autoresizingMask = [.width, .height]

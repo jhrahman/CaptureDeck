@@ -52,6 +52,28 @@ public protocol RegionSelecting: Sendable {
     func pickTarget(on snapshots: [DisplaySnapshot], finder: any PickTargetFinder) async throws -> CaptureTarget
 }
 
+/// Settings-driven behavior of the selection overlay. Read fresh each time an overlay opens,
+/// so changes in Settings apply to the next capture.
+public struct OverlayOptions: Sendable {
+    /// How dark the area outside the selection is (0 = not dimmed).
+    public var dimAlpha: CGFloat
+    public var showMagnifier: Bool
+    /// Magnification of the loupe (4, 8, 12...).
+    public var magnifierZoom: Int
+    /// Fixed-size mode: the size to start with, and where to report changes so it is remembered.
+    public var lastFixedSize: CGSize?
+    public var onFixedSizeChanged: (@MainActor @Sendable (CGSize) -> Void)?
+
+    public init(dimAlpha: CGFloat = 0.4, showMagnifier: Bool = true, magnifierZoom: Int = 8,
+                lastFixedSize: CGSize? = nil, onFixedSizeChanged: (@MainActor @Sendable (CGSize) -> Void)? = nil) {
+        self.dimAlpha = min(max(dimAlpha, 0), 0.9)
+        self.showMagnifier = showMagnifier
+        self.magnifierZoom = max(2, magnifierZoom)
+        self.lastFixedSize = lastFixedSize
+        self.onFixedSizeChanged = onFixedSizeChanged
+    }
+}
+
 public struct OverlayStyle: @unchecked Sendable {
     public var accent: NSColor
     public init(accent: NSColor = .white) { self.accent = accent }
