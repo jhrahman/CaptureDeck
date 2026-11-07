@@ -152,6 +152,10 @@ struct ToolOptionsView: View {
                     .frame(width: 120)
                 Text("\(Int(model.style.strength))").monospacedDigit().frame(width: 24, alignment: .trailing).font(.caption)
             }
+        case .endHead:
+            labelled(model.title(.endHead, default: "Head")) { headPicker(model.style.endHead) { v in model.edit { $0.endHead = v } } }
+        case .startHead:
+            labelled(model.title(.startHead, default: "Tail")) { headPicker(model.style.startHead) { v in model.edit { $0.startHead = v } } }
         case .textColor:
             labelled(model.title(.textColor, default: "Text")) {
                 ColorPicker("Text color", selection: Binding(get: { swiftUIColor(model.style.textColor) },
@@ -170,6 +174,13 @@ struct ToolOptionsView: View {
                     .frame(width: 80)
             }
         }
+    }
+
+    private func headPicker(_ current: ArrowHeadStyle, _ set: @escaping (ArrowHeadStyle) -> Void) -> some View {
+        Picker("End", selection: Binding(get: { current }, set: set)) {
+            ForEach(ArrowHeadStyle.allCases, id: \.self) { Text($0.title).tag($0) }
+        }
+        .labelsHidden().frame(width: 112)
     }
 
     private func labelled<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {

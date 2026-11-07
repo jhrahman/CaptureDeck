@@ -53,9 +53,29 @@ public final class EditorStore: NSObject {
     }
 
     @objc public func pasteAsNewTab(_ sender: Any?) {
-        guard let image = ImageImport.image() else { NSSound.beep(); return }
+        guard let image = ImageImport.image() else {
+            let alert = NSAlert()
+            alert.messageText = "There is no image on the clipboard"
+            alert.informativeText = "Copy an image (or take a screenshot) first, then try again."
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+            return
+        }
         open(image: image, title: "Pasted image")
     }
+
+    /// Brings every open editor window to the front. Returns false if there are none.
+    @discardableResult
+    public func showEditors() -> Bool {
+        guard !controllers.isEmpty else { return false }
+        NSApp.activate(ignoringOtherApps: true)
+        for controller in controllers { controller.window?.orderFrontRegardless() }
+        controllers.last?.window?.makeKeyAndOrderFront(nil)
+        return true
+    }
+
+    /// Opens files (for example images dropped on the capture panel) in new tabs.
+    public func openImages(at urls: [URL]) { open(urls: urls) }
 
     private func show(_ document: EditorDocument) {
         let controller = EditorWindowController(editorDocument: document, store: self)

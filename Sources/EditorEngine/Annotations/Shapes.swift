@@ -134,18 +134,16 @@ public struct EllipseShape: AnnotationShape, Codable, Equatable {
 
 // MARK: - Line, arrow, double arrow
 
+/// A straight line. What its two ends look like (arrowheads and so on) comes from the style, so one shape covers
+/// plain lines, arrows and double arrows.
 public struct LineShape: AnnotationShape, Codable, Equatable {
     public static let typeID = "line"
     public var start: CGPoint
     public var end: CGPoint
-    public var startHead: ArrowHeadStyle
-    public var endHead: ArrowHeadStyle
 
-    public init(start: CGPoint, end: CGPoint, startHead: ArrowHeadStyle = .none, endHead: ArrowHeadStyle = .none) {
+    public init(start: CGPoint, end: CGPoint) {
         self.start = start
         self.end = end
-        self.startHead = startHead
-        self.endHead = endHead
     }
 
     public var geometryBounds: CGRect { boundingRect(of: [start, end]) }
@@ -158,36 +156,55 @@ public struct LineShape: AnnotationShape, Codable, Equatable {
         context.move(to: start)
         context.addLine(to: end)
         context.strokePath()
-        drawHead(at: end, from: start, kind: endHead, in: context, style: style)
-        drawHead(at: start, from: end, kind: startHead, in: context, style: style)
+        drawHead(at: end, from: start, kind: style.endHead, in: context, style: style)
+        drawHead(at: start, from: end, kind: style.startHead, in: context, style: style)
     }
 
     private func drawHead(at tip: CGPoint, from tail: CGPoint, kind: ArrowHeadStyle, in context: CGContext, style: AnnotationStyle) {
         guard kind != .none else { return }
         let angle = atan2(tip.y - tail.y, tip.x - tail.x)
         let length = Self.headLength(for: style)
-        let spread = CGFloat.pi / 7
-        let left = CGPoint(x: tip.x - length * cos(angle - spread), y: tip.y - length * sin(angle - spread))
-        let right = CGPoint(x: tip.x - length * cos(angle + spread), y: tip.y - length * sin(angle + spread))
+        let ux = cos(angle), uy = sin(angle)                  // along the line, toward the tip
+        let nx = -uy, ny = ux                                 // across it
+        func point(_ along: CGFloat, _ across: CGFloat) -> CGPoint {
+            CGPoint(x: tip.x - ux * along + nx * across, y: tip.y - uy * along + ny * across)
+        }
         context.setLineDash(phase: 0, lengths: [])
-        if kind == .filled {
-            context.setFillColor(style.strokeColor.cgColor)
-            context.move(to: tip); context.addLine(to: left); context.addLine(to: right); context.closePath()
+        context.setFillColor(style.strokeColor.cgColor)
+        switch kind {
+        case .none: break
+        case .filled:
+            let spread = length * 0.45
+            context.move(to: tip); context.addLine(to: point(length, spread)); context.addLine(to: point(length, -spread)); context.closePath()
             context.drawPath(using: .fillStroke)
-        } else {
-            context.move(to: left); context.addLine(to: tip); context.addLine(to: right)
+        case .open:
+            let spread = length * 0.45
+            context.move(to: point(length, spread)); context.addLine(to: tip); context.addLine(to: point(length, -spread))
+            context.strokePath()
+        case .diamond:
+            let half = length * 0.5, spread = length * 0.32
+            context.move(to: tip); context.addLine(to: point(half, spread)); context.addLine(to: point(length, 0)); context.addLine(to: point(half, -spread))
+            context.closePath()
+            context.drawPath(using: .fillStroke)
+        case .dot:
+            let r = length * 0.32
+            let center = point(r, 0)
+            context.fillEllipse(in: CGRect(x: center.x - r, y: center.y - r, width: 2 * r, height: 2 * r))
+        case .bar:
+            let half = length * 0.5
+            context.move(to: point(0, half)); context.addLine(to: point(0, -half))
             context.strokePath()
         }
     }
 
     public func hitTest(_ point: CGPoint, style: AnnotationStyle, tolerance: CGFloat) -> Bool {
         var reach = tolerance + CGFloat(style.lineWidth) / 2
-        if endHead != .none || startHead != .none { reach = max(reach, Self.headLength(for: style) / 3) }
+        if style.endHead != .none || style.startHead != .none { reach = max(reach, Self.headLength(for: style) / 3) }
         return distance(from: point, toSegment: start, end) <= reach
     }
 
     public func applying(_ transform: CGAffineTransform) -> any AnnotationShape {
-        LineShape(start: tidy(start.applying(transform)), end: tidy(end.applying(transform)), startHead: startHead, endHead: endHead)
+        LineShape(start: tidy(start.applying(transform)), end: tidy(end.applying(transform)))
     }
 
     public func payload() throws -> Data { try AnnotationJSON.encode(self) }

@@ -330,6 +330,8 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
             if !offered.contains(.alignment) { look.alignment = changed[index].style.alignment }
             if !offered.contains(.strength) && !offered.contains(.zoom) { look.strength = changed[index].style.strength }
             if !offered.contains(.textColor) { look.textColor = changed[index].style.textColor }
+            if !offered.contains(.startHead) { look.startHead = changed[index].style.startHead }
+            if !offered.contains(.endHead) { look.endHead = changed[index].style.endHead }
             changed[index].style = look
         }
         document.previewAnnotations(changed)

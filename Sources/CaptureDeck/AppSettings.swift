@@ -36,6 +36,7 @@ enum SettingID {
     static let panelVisible = "panel.visible"
     static let panelOpacity = "panel.opacity"
     static let panelButtonSize = "panel.buttonSize"
+    static let panelEditorButtons = "panel.showEditorButtons"
     static func panelShows(_ modeID: String) -> String { "panel.show.\(modeID)" }
 
     static let editorAskBeforeDiscard = "editor.askBeforeDiscard"
@@ -138,6 +139,8 @@ enum AppSettings {
                   defaultValue: .double(1.0), control: .slider(0.3...1.0, step: 0.05), order: 1),
             .init(id: SettingID.panelButtonSize, section: .panel, group: "Panel", title: "Button size",
                   defaultValue: .string("medium"), control: .choice([.init("small", "Small"), .init("medium", "Medium"), .init("large", "Large")]), order: 2),
+            .init(id: SettingID.panelEditorButtons, section: .panel, group: "Panel", title: "Show the “Open image” and “Edit clipboard image” buttons",
+                  help: "You can also drop an image file on the panel to edit it.", defaultValue: .bool(true), control: .toggle, order: 3),
         ]
         for (index, mode) in modes.enumerated() {
             defs.append(.init(id: SettingID.panelShows(mode.id), section: .panel, group: "Buttons shown", title: mode.title,
@@ -186,6 +189,10 @@ enum AppSettings {
                 case .fontName:
                     defs.append(def("Font", .string(style.fontName), .choice(TextFonts.common.map { .init($0, $0) })))
                 case .fontSize: defs.append(def("Size", .int(Int(style.fontSize)), .stepper(4...400, unit: "px")))
+                case .startHead, .endHead:
+                    let value = property == .endHead ? style.endHead : style.startHead
+                    defs.append(def(tool.propertyTitles[property].map { "\($0) style" } ?? "End style", .string(value.rawValue),
+                                    .choice(ArrowHeadStyle.allCases.map { .init($0.rawValue, $0.title) })))
                 case .textColor: defs.append(def(tool.propertyTitles[.textColor].map { "\($0) color" } ?? "Text color", .string(style.textColor.hex), .color))
                 case .zoom: defs.append(def("Zoom", .int(Int(style.strength)), .stepper(2...8, unit: "×")))
                 case .strength: defs.append(def(tool.propertyTitles[.strength] ?? "Strength", .int(Int(style.strength)), .stepper(1...60, unit: "px")))

@@ -431,3 +431,28 @@ final class CalloutTool: EditorTool {
 
     func deactivate() { start = nil }
 }
+
+// MARK: - Paint bucket
+
+/// Click an area to fill it with a color.
+@MainActor
+final class FillTool: EditorTool {
+    let descriptor = EditorToolRegistry.fill
+
+    func cursor(at point: CGPoint, context: ToolContext) -> NSCursor { .crosshair }
+    func mouseDown(at point: CGPoint, context: ToolContext) {}
+    func mouseDragged(to point: CGPoint, context: ToolContext) {}
+
+    func mouseUp(at point: CGPoint, context: ToolContext) {
+        guard context.document.imageBounds.contains(point) else { return }
+        context.document.addAnnotation(Annotation(shape: FillShape(seed: point), style: context.style))
+    }
+
+    func keyDown(_ event: NSEvent, context: ToolContext) -> Bool {
+        guard event.keyCode == 53 else { return false }
+        context.document.clearAnnotationSelection()
+        return true
+    }
+
+    func deactivate() {}
+}

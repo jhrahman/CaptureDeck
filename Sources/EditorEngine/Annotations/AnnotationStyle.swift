@@ -18,8 +18,20 @@ public enum TextAlignment: String, Codable, Sendable, CaseIterable {
     case left, center, right
 }
 
+/// The shape at the end of a line: nothing, an open "V", a solid arrowhead, a diamond, a dot or a cross-bar.
 public enum ArrowHeadStyle: String, Codable, Sendable, CaseIterable {
-    case none, open, filled
+    case none, open, filled, diamond, dot, bar
+
+    public var title: String {
+        switch self {
+        case .none: "None"
+        case .open: "Open arrow"
+        case .filled: "Solid arrow"
+        case .diamond: "Diamond"
+        case .dot: "Dot"
+        case .bar: "Bar"
+        }
+    }
 }
 
 /// How an annotation looks. Sizes are in image pixels.
@@ -43,6 +55,9 @@ public struct AnnotationStyle: Equatable, Sendable, Codable {
     public var strength: Double
     /// Color of the text inside bubbles. (Plain text boxes use `strokeColor` for their text.)
     public var textColor: RGBAColor
+    /// What the two ends of a line look like (lines and arrows only).
+    public var startHead: ArrowHeadStyle
+    public var endHead: ArrowHeadStyle
 
     public static let defaultTextColor = RGBAColor(hex: "#1D1D1FFF") ?? .black
     public static let defaultFontName = "Helvetica Neue"
@@ -50,7 +65,8 @@ public struct AnnotationStyle: Equatable, Sendable, Codable {
     public init(strokeColor: RGBAColor, fillColor: RGBAColor = .clear, lineWidth: Double = 4, opacity: Double = 1,
                 dash: DashStyle = .solid, cornerRadius: Double = 0,
                 fontName: String = AnnotationStyle.defaultFontName, fontSize: Double = 28, bold: Bool = false, italic: Bool = false,
-                alignment: TextAlignment = .left, strength: Double = 12, textColor: RGBAColor = AnnotationStyle.defaultTextColor) {
+                alignment: TextAlignment = .left, strength: Double = 12, textColor: RGBAColor = AnnotationStyle.defaultTextColor,
+                startHead: ArrowHeadStyle = .none, endHead: ArrowHeadStyle = .none) {
         self.strokeColor = strokeColor
         self.fillColor = fillColor
         self.lineWidth = Self.clampWidth(lineWidth)
@@ -64,6 +80,8 @@ public struct AnnotationStyle: Equatable, Sendable, Codable {
         self.alignment = alignment
         self.strength = strength.isNaN ? 12 : min(max(strength, 1), 200)
         self.textColor = textColor
+        self.startHead = startHead
+        self.endHead = endHead
     }
 
     public static let defaultStroke = RGBAColor(hex: "#FF3B30FF") ?? .black
@@ -72,7 +90,7 @@ public struct AnnotationStyle: Equatable, Sendable, Codable {
     public static func clampWidth(_ w: Double) -> Double { w.isNaN ? 4 : min(max(w, 0), 200) }
 
     // Missing fields (from older or newer files) fall back to the defaults instead of failing to load.
-    private enum CodingKeys: String, CodingKey { case strokeColor, fillColor, lineWidth, opacity, dash, cornerRadius, fontName, fontSize, bold, italic, alignment, strength, textColor }
+    private enum CodingKeys: String, CodingKey { case strokeColor, fillColor, lineWidth, opacity, dash, cornerRadius, fontName, fontSize, bold, italic, alignment, strength, textColor, startHead, endHead }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -89,6 +107,8 @@ public struct AnnotationStyle: Equatable, Sendable, Codable {
             italic: try c.decodeIfPresent(Bool.self, forKey: .italic) ?? false,
             alignment: try c.decodeIfPresent(TextAlignment.self, forKey: .alignment) ?? .left,
             strength: try c.decodeIfPresent(Double.self, forKey: .strength) ?? 12,
-            textColor: try c.decodeIfPresent(RGBAColor.self, forKey: .textColor) ?? Self.defaultTextColor)
+            textColor: try c.decodeIfPresent(RGBAColor.self, forKey: .textColor) ?? Self.defaultTextColor,
+            startHead: try c.decodeIfPresent(ArrowHeadStyle.self, forKey: .startHead) ?? .none,
+            endHead: try c.decodeIfPresent(ArrowHeadStyle.self, forKey: .endHead) ?? .none)
     }
 }

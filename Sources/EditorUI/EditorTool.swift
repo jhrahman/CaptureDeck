@@ -65,6 +65,8 @@ public enum StyleProperty: String, Sendable, CaseIterable {
     case zoom
     /// Text color inside bubbles.
     case textColor
+    /// The two ends of a line: arrowheads and so on.
+    case startHead, endHead
 }
 
 public struct EditorToolDescriptor: Sendable, Identifiable, Equatable {
@@ -116,15 +118,20 @@ public enum EditorToolRegistry {
         styleProperties: outline + [.cornerRadius], defaultStyle: AnnotationStyle(strokeColor: AnnotationStyle.defaultStroke, cornerRadius: 24), iconColor: "#FF9F0A")
     public static let ellipse = EditorToolDescriptor(
         id: "ellipse", title: "Ellipse", symbol: "circle", key: "o", kind: .draw, styleProperties: outline, iconColor: "#34C759")
+    private static let lineProperties: [StyleProperty] = [.stroke, .width, .opacity, .dash, .endHead, .startHead]
+    private static let lineTitles: [StyleProperty: String] = [.endHead: "Head", .startHead: "Tail"]
     public static let line = EditorToolDescriptor(
-        id: "line", title: "Line", symbol: "line.diagonal", key: "l", kind: .draw, styleProperties: [.stroke, .width, .opacity, .dash], iconColor: "#64D2FF")
+        id: "line", title: "Line", symbol: "line.diagonal", key: "l", kind: .draw, styleProperties: lineProperties,
+        iconColor: "#64D2FF", propertyTitles: lineTitles)
     public static let arrow = EditorToolDescriptor(
-        id: "arrow", title: "Arrow", symbol: "arrow.up.right", key: "a", kind: .draw, styleProperties: [.stroke, .width, .opacity, .dash],
-        defaultStyle: AnnotationStyle(strokeColor: AnnotationStyle.defaultStroke, lineWidth: 5), iconColor: "#FF375F")
+        id: "arrow", title: "Arrow", symbol: "arrow.up.right", key: "a", kind: .draw, styleProperties: lineProperties,
+        defaultStyle: AnnotationStyle(strokeColor: AnnotationStyle.defaultStroke, lineWidth: 5, endHead: .filled),
+        iconColor: "#FF375F", propertyTitles: lineTitles)
     public static let doubleArrow = EditorToolDescriptor(
         id: "doubleArrow", title: "Double Arrow", symbol: "arrow.left.and.right", key: "d", kind: .draw,
-        styleProperties: [.stroke, .width, .opacity, .dash], defaultStyle: AnnotationStyle(strokeColor: AnnotationStyle.defaultStroke, lineWidth: 5),
-        iconColor: "#BF5AF2")
+        styleProperties: lineProperties,
+        defaultStyle: AnnotationStyle(strokeColor: AnnotationStyle.defaultStroke, lineWidth: 5, startHead: .filled, endHead: .filled),
+        iconColor: "#BF5AF2", propertyTitles: lineTitles)
     public static let pencil = EditorToolDescriptor(
         id: "pencil", title: "Pencil", symbol: "pencil", key: "p", kind: .draw, styleProperties: [.stroke, .width, .opacity],
         defaultStyle: AnnotationStyle(strokeColor: AnnotationStyle.defaultStroke, lineWidth: 5), iconColor: "#D9A441")
@@ -162,6 +169,11 @@ public enum EditorToolRegistry {
         defaultStyle: AnnotationStyle(strokeColor: white, fillColor: RGBAColor(hex: "#0A84FFFF") ?? .black, lineWidth: 0, fontSize: 28),
         iconColor: "#5E5CE6", propertyTitles: [.fill: "Circle", .stroke: "Letter", .fontSize: "Size"])
 
+    public static let fill = EditorToolDescriptor(
+        id: "fill", title: "Paint Bucket", symbol: "paintbrush.fill", key: "i", kind: .draw,
+        styleProperties: [.stroke, .strength, .opacity],
+        defaultStyle: AnnotationStyle(strokeColor: RGBAColor(hex: "#34C759FF") ?? .black, strength: 20),
+        iconColor: "#FB7185", propertyTitles: [.stroke: "Fill color", .strength: "Tolerance"])
     public static let blur = EditorToolDescriptor(
         id: "blur", title: "Blur", symbol: "drop.fill", key: "b", kind: .draw, styleProperties: [.strength],
         defaultStyle: AnnotationStyle(strokeColor: AnnotationStyle.defaultStroke, strength: 12),
@@ -178,13 +190,13 @@ public enum EditorToolRegistry {
         [rectangle, roundedRectangle, ellipse],
         [line, arrow, doubleArrow, pencil],
         [text, callout, ovalCallout, step, stepLetter],
-        [highlighter, blur, pixelate, spotlight, magnifier],
+        [highlighter, fill, blur, pixelate, spotlight, magnifier],
     ]
 
     /// Which tool draws each kind of shape, so selecting a shape can show that tool's properties and names.
     static let toolForShapeType: [String: EditorToolDescriptor] = [
         "rectangle": rectangle, "ellipse": ellipse, "line": line, "pencil": pencil, "highlighter": highlighter,
-        "text": text, "callout": callout, "step": step, "blur": blur, "pixelate": pixelate, "spotlight": spotlight, "magnifier": magnifier,
+        "text": text, "callout": callout, "step": step, "fill": fill, "blur": blur, "pixelate": pixelate, "spotlight": spotlight, "magnifier": magnifier,
     ]
 
     /// The properties that make sense for the selected shapes (the union, in the usual order) and their names.
@@ -223,8 +235,8 @@ public enum EditorToolRegistry {
             ShapeDragTool(roundedRectangle) { a, b, square in RectangleShape(rect: ShapeDragTool.rect(a, b, square: square)) },
             ShapeDragTool(ellipse) { a, b, circle in EllipseShape(rect: ShapeDragTool.rect(a, b, square: circle)) },
             ShapeDragTool(line) { a, b, snap in LineShape(start: a, end: ShapeDragTool.end(a, b, snap: snap)) },
-            ShapeDragTool(arrow) { a, b, snap in LineShape(start: a, end: ShapeDragTool.end(a, b, snap: snap), endHead: .filled) },
-            ShapeDragTool(doubleArrow) { a, b, snap in LineShape(start: a, end: ShapeDragTool.end(a, b, snap: snap), startHead: .filled, endHead: .filled) },
+            ShapeDragTool(arrow) { a, b, snap in LineShape(start: a, end: ShapeDragTool.end(a, b, snap: snap)) },
+            ShapeDragTool(doubleArrow) { a, b, snap in LineShape(start: a, end: ShapeDragTool.end(a, b, snap: snap)) },
             PencilTool(),
             TextTool(),
             CalloutTool(callout, oval: false),
@@ -232,6 +244,7 @@ public enum EditorToolRegistry {
             StepTool(step, letters: false),
             StepTool(stepLetter, letters: true),
             ShapeDragTool(highlighter) { a, b, square in HighlighterShape(rect: ShapeDragTool.rect(a, b, square: square)) },
+            FillTool(),
             ShapeDragTool(blur) { a, b, _ in BlurShape(rect: ShapeDragTool.rect(a, b, square: false)) },
             ShapeDragTool(pixelate) { a, b, _ in PixelateShape(rect: ShapeDragTool.rect(a, b, square: false)) },
             ShapeDragTool(spotlight) { a, b, square in SpotlightShape(rect: ShapeDragTool.rect(a, b, square: square)) },
@@ -264,6 +277,8 @@ public enum ToolStyleSetting {
             case .alignment: style.alignment = TextAlignment(rawValue: settings.string(key)) ?? style.alignment
             case .strength, .zoom: style.strength = Double(settings.int(key))
             case .textColor: style.textColor = RGBAColor(hex: settings.string(key)) ?? style.textColor
+            case .startHead: style.startHead = ArrowHeadStyle(rawValue: settings.string(key)) ?? style.startHead
+            case .endHead: style.endHead = ArrowHeadStyle(rawValue: settings.string(key)) ?? style.endHead
             }
         }
         return style
@@ -288,6 +303,8 @@ public enum ToolStyleSetting {
             case .alignment: settings.set(style.alignment.rawValue, for: key)
             case .strength, .zoom: settings.set(Int(style.strength.rounded()), for: key)
             case .textColor: settings.set(style.textColor.hex, for: key)
+            case .startHead: settings.set(style.startHead.rawValue, for: key)
+            case .endHead: settings.set(style.endHead.rawValue, for: key)
             }
         }
     }

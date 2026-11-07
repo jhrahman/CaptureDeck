@@ -8,6 +8,7 @@ enum CaptureModeIcon {
         let name: String
         switch modeID {
         case "fullScreen": name = "display"
+        case "allDisplays": name = "rectangle.on.rectangle"
         case "region": name = "rectangle.dashed"
         case "activeWindow": name = "macwindow"
         case "windowObject": name = "cursorarrow.click.2"
@@ -18,6 +19,14 @@ enum CaptureModeIcon {
         }
         return NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil ? name : "camera"
     }
+}
+
+/// A button on the panel that is not a capture mode.
+struct PanelExtra: Identifiable {
+    let id: String
+    let symbol: String
+    let title: String
+    let action: () -> Void
 }
 
 /// Button size choices on the Capture Panel tab.
@@ -39,6 +48,8 @@ struct CapturePanelView: View {
     let buttonSize: PanelButtonSize
     /// Display text of each mode's current shortcut, for tooltips.
     let shortcuts: [String: String]
+    /// Non-capture buttons shown after a divider (open an image, edit the clipboard image).
+    let extras: [PanelExtra]
     let run: (String) -> Void
 
     var body: some View {
@@ -46,6 +57,12 @@ struct CapturePanelView: View {
             ForEach(Array(modes.enumerated()), id: \.offset) { _, mode in
                 PanelButton(symbol: CaptureModeIcon.symbol(for: mode.id), title: mode.title, shortcut: shortcut(for: mode), size: buttonSize) {
                     run(mode.id)
+                }
+            }
+            if !extras.isEmpty {
+                Divider().frame(height: buttonSize.side * 0.6).padding(.horizontal, 3)
+                ForEach(extras) { extra in
+                    PanelButton(symbol: extra.symbol, title: extra.title, shortcut: nil, size: buttonSize, action: extra.action)
                 }
             }
         }

@@ -115,6 +115,7 @@ public enum AnnotationRegistry {
         HighlighterShape.typeID: { try JSONDecoder().decode(HighlighterShape.self, from: $0) },
         BlurShape.typeID: { try JSONDecoder().decode(BlurShape.self, from: $0) },
         PixelateShape.typeID: { try JSONDecoder().decode(PixelateShape.self, from: $0) },
+        FillShape.typeID: { try JSONDecoder().decode(FillShape.self, from: $0) },
         SpotlightShape.typeID: { try JSONDecoder().decode(SpotlightShape.self, from: $0) },
         MagnifierShape.typeID: { try JSONDecoder().decode(MagnifierShape.self, from: $0) },
         TextShape.typeID: { try JSONDecoder().decode(TextShape.self, from: $0) },

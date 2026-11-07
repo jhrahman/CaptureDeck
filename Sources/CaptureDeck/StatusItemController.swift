@@ -3,6 +3,7 @@ import CaptureEngine
 import Combine
 import CoreModels
 import DesignSystem
+import EditorUI
 import Settings
 
 /// Owns the menu bar icon and its menu. The menu is rebuilt whenever a shortcut or the theme changes.
@@ -12,14 +13,16 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let coordinator: CaptureCoordinator
     private let panel: CapturePanelController
     private let store: SettingsStore
+    private let editor: EditorStore
     private let openSettings: () -> Void
     private var toggleItem: NSMenuItem?
     private var subscription: AnyCancellable?
 
-    init(coordinator: CaptureCoordinator, panel: CapturePanelController, store: SettingsStore, openSettings: @escaping () -> Void) {
+    init(coordinator: CaptureCoordinator, panel: CapturePanelController, store: SettingsStore, editor: EditorStore, openSettings: @escaping () -> Void) {
         self.coordinator = coordinator
         self.panel = panel
         self.store = store
+        self.editor = editor
         self.openSettings = openSettings
         super.init()
         statusItem.button?.image = Self.menuBarImage()
@@ -55,6 +58,18 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
         menu.addItem(.separator())
 
+        // The editor: open any image, edit what is on the clipboard, or come back to open editors.
+        let openImage = NSMenuItem(title: "Open Image in Editor…", action: #selector(openImageInEditor), keyEquivalent: "")
+        openImage.target = self
+        menu.addItem(openImage)
+        let pasteImage = NSMenuItem(title: "Edit Image from Clipboard", action: #selector(editClipboardImage), keyEquivalent: "")
+        pasteImage.target = self
+        menu.addItem(pasteImage)
+        let showEditors = NSMenuItem(title: "Show Editor", action: #selector(showOpenEditors), keyEquivalent: "")
+        showEditors.target = self
+        menu.addItem(showEditors)
+        menu.addItem(.separator())
+
         let toggle = NSMenuItem(title: "Hide Capture Panel", action: #selector(togglePanel), keyEquivalent: "")
         toggle.target = self
         applyShortcut(store.shortcut(SettingID.togglePanelHotkey), to: toggle)
@@ -83,9 +98,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.item(withTitle: "Show Editor")?.isEnabled = editor.hasOpenEditors
         toggleItem?.title = panel.isVisible ? "Hide Capture Panel" : "Show Capture Panel"
     }
 
+    @objc private func openImageInEditor() { editor.openDocument(nil) }
+    @objc private func editClipboardImage() { editor.pasteAsNewTab(nil) }
+    @objc private func showOpenEditors() { editor.showEditors() }
     @objc private func showSettings() { openSettings() }
     @objc private func togglePanel() { panel.toggle() }
 

@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let overlay = RegionSelector(style: OverlayStyle(accent: Theme.accent)) { [weak self] in self?.overlayOptions() ?? OverlayOptions() }
         let modes: [any CaptureMode] = [
             FullScreenCaptureMode(),
+            AllDisplaysCaptureMode(),
             RegionCaptureMode(selector: overlay),
             ActiveWindowCaptureMode(),
             WindowObjectCaptureMode(selector: overlay),
@@ -49,12 +50,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.appearance.set(AppearancePreference(rawValue: self.store.string(SettingID.appearance)) ?? .system)
         }.store(in: &subscriptions)
 
-        panel = CapturePanelController(modes: modes, store: store) { [coordinator] id in coordinator?.run(modeID: id) }
+        panel = CapturePanelController(
+            modes: modes, store: store,
+            extras: { [weak self] in
+                [PanelExtra(id: "openImage", symbol: "folder", title: "Open Image in Editor…") { self?.editor.openDocument(nil) },
+                 PanelExtra(id: "clipboard", symbol: "doc.on.clipboard", title: "Edit Image from Clipboard") { self?.editor.pasteAsNewTab(nil) }]
+            },
+            onDropImages: { [weak self] urls in self?.editor.openImages(at: urls) }
+        ) { [coordinator] id in coordinator?.run(modeID: id) }
         coordinator.beforeCapture = { [panel, editor] in await panel?.suspend(); await editor?.suspendWindows() }
         coordinator.afterCapture = { [panel, editor] in panel?.resume(); editor?.resumeWindows() }
         coordinator.openInEditor = { [editor] image in editor?.open(image: image) }
 
-        statusItem = StatusItemController(coordinator: coordinator, panel: panel, store: store) { [weak self] in
+        statusItem = StatusItemController(coordinator: coordinator, panel: panel, store: store, editor: editor) { [weak self] in
             self?.settingsWindow.show()
         }
 

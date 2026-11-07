@@ -80,7 +80,8 @@ struct AnnotationRenderingTests {
     }
 
     @Test func arrowDrawsALineAndAHead() throws {
-        let a = Annotation(shape: LineShape(start: CGPoint(x: 4, y: 15), end: CGPoint(x: 36, y: 15), endHead: .filled), style: solid(red, width: 2))
+        var style = solid(red, width: 2); style.endHead = .filled
+        let a = Annotation(shape: LineShape(start: CGPoint(x: 4, y: 15), end: CGPoint(x: 36, y: 15)), style: style)
         let out = try #require(AnnotationRenderer.render([a], onto: blank()))
         #expect(px(out, 15, 15) == [255, 0, 0, 255])                          // the shaft
         #expect(px(out, 32, 13) == [255, 0, 0, 255])                          // inside the arrowhead, above the shaft
@@ -139,7 +140,7 @@ struct AnnotationPersistenceTests {
         let shapes: [any AnnotationShape] = [
             RectangleShape(rect: CGRect(x: 1, y: 2, width: 3, height: 4)),
             EllipseShape(rect: CGRect(x: 1, y: 2, width: 3, height: 4)),
-            LineShape(start: CGPoint(x: 1, y: 2), end: CGPoint(x: 3, y: 4), startHead: .open, endHead: .filled),
+            LineShape(start: CGPoint(x: 1, y: 2), end: CGPoint(x: 3, y: 4)),
             PencilShape(points: [CGPoint(x: 1, y: 1), CGPoint(x: 2, y: 3)]),
             HighlighterShape(rect: CGRect(x: 1, y: 2, width: 3, height: 4)),
         ]

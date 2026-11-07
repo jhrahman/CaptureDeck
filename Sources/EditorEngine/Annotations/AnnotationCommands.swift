@@ -18,6 +18,7 @@ final class AddAnnotationsCommand: EditorCommand {
         case "line": "Line"
         case "pencil": "Drawing"
         case "highlighter": "Highlight"
+        case "fill": "Fill"
         case "spotlight": "Spotlight"
         case "magnifier": "Magnifier"
         case "blur": "Blur"

@@ -13,18 +13,24 @@ final class CapturePanelController {
     private let modes: [any CaptureMode]
     private let store: SettingsStore
     private let run: (String) -> Void
+    private let extras: () -> [PanelExtra]
     private var suspended = false
     private var subscription: AnyCancellable?
 
-    init(modes: [any CaptureMode], store: SettingsStore, run: @escaping (String) -> Void) {
+    /// `onDropImages` receives image files dropped on the panel.
+    init(modes: [any CaptureMode], store: SettingsStore, extras: @escaping () -> [PanelExtra],
+         onDropImages: @escaping ([URL]) -> Void, run: @escaping (String) -> Void) {
         self.modes = modes
         self.store = store
         self.run = run
-        host = NSHostingView(rootView: CapturePanelView(modes: modes, buttonSize: .medium, shortcuts: [:], run: run))
+        self.extras = extras
+        host = NSHostingView(rootView: CapturePanelView(modes: modes, buttonSize: .medium, shortcuts: [:], extras: [], run: run))
 
         panel = NSPanel(contentRect: CGRect(origin: .zero, size: host.fittingSize),
                         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.contentView = host
+        // Wrapped so image files can be dropped on the panel to open them in the editor.
+        let drop = PanelDropView(content: host, onDrop: onDropImages)
+        panel.contentView = drop
         panel.level = .floating
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -52,7 +58,8 @@ final class CapturePanelController {
         var shortcuts: [String: String] = [:]
         for mode in modes { shortcuts[mode.id] = store.shortcut(SettingID.hotkey(mode.id))?.displayString }
 
-        host.rootView = CapturePanelView(modes: shown, buttonSize: size, shortcuts: shortcuts, run: run)
+        host.rootView = CapturePanelView(modes: shown, buttonSize: size, shortcuts: shortcuts,
+                                         extras: store.bool(SettingID.panelEditorButtons) ? extras() : [], run: run)
         let fitting = host.fittingSize
         if panel.frame.size != fitting {
             // Keep the top-left corner where it is while the size changes.
@@ -100,5 +107,36 @@ final class CapturePanelController {
         guard let screen = NSScreen.main else { return }
         let size = panel.frame.size
         panel.setFrameOrigin(CGPoint(x: screen.visibleFrame.midX - size.width / 2, y: screen.visibleFrame.maxY - size.height - 12))
+    }
+}
+
+/// Hosts the panel's content and accepts image files dropped on it.
+@MainActor
+private final class PanelDropView: NSView {
+    private let onDrop: ([URL]) -> Void
+
+    init(content: NSView, onDrop: @escaping ([URL]) -> Void) {
+        self.onDrop = onDrop
+        super.init(frame: content.frame)
+        content.frame = bounds
+        content.autoresizingMask = [.width, .height]
+        addSubview(content)
+        registerForDraggedTypes([.fileURL])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    private func imageURLs(_ info: NSDraggingInfo) -> [URL] {
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingContentsConformToTypes: ["public.image"]]
+        return (info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL]) ?? []
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { imageURLs(sender).isEmpty ? [] : .copy }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let urls = imageURLs(sender)
+        guard !urls.isEmpty else { return false }
+        onDrop(urls)
+        return true
     }
 }
