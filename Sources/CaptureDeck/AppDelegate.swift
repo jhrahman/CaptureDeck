@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         FullScreenCaptureMode(),
         RegionCaptureMode(selector: RegionSelector(style: OverlayStyle(accent: Theme.accent))),
         ActiveWindowCaptureMode(),
+        WindowObjectCaptureMode(selector: RegionSelector(style: OverlayStyle(accent: Theme.accent))),
         FixedSizeCaptureMode(selector: RegionSelector(style: OverlayStyle(accent: Theme.accent))),
     ])
     private var statusItem: StatusItemController?

@@ -24,7 +24,13 @@ public protocol CaptureMode: Sendable {
     var id: String { get }
     var title: String { get }
     var defaultShortcut: KeyShortcut? { get }
+    /// True if the mode works better with the Accessibility permission (it must still work without it).
+    var wantsAccessibility: Bool { get }
     func run(_ context: CaptureContext) async throws -> CaptureResult
+}
+
+public extension CaptureMode {
+    var wantsAccessibility: Bool { false }
 }
 
 /// Pixel dimensions for a point-sized area at a given scale (rounded, at least 1x1).

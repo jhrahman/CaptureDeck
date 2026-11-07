@@ -42,6 +42,7 @@ final class CaptureCoordinator {
         defer { isCapturing = false }
 
         guard ensurePermission() else { return }
+        if mode.wantsAccessibility { offerAccessibilityOnce() }
 
         let settings = CaptureSettings.load()
         do {
@@ -81,6 +82,16 @@ final class CaptureCoordinator {
         }
         showPermissionAlert()
         return false
+    }
+
+    private static let axAskedKey = "permission.accessibility.asked"
+
+    /// Accessibility is optional (window/object capture falls back to whole windows),
+    /// so ask once and carry on without blocking the capture.
+    private func offerAccessibilityOnce() {
+        guard !AccessibilityPermission.isGranted, !UserDefaults.standard.bool(forKey: Self.axAskedKey) else { return }
+        UserDefaults.standard.set(true, forKey: Self.axAskedKey)
+        AccessibilityPermission.requestPrompt()
     }
 
     private func showPermissionAlert() {

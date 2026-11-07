@@ -9,6 +9,10 @@ final class RegionOverlayView: NSView {
     /// Non-nil in fixed-size mode: a rectangle of fixed pixel size follows the pointer.
     private var fixed: FixedSizeSelectionModel?
     private var presets: [CGSize] = []
+    /// Non-nil in window/object mode: hover highlights what is under the pointer.
+    private var finder: (any PickTargetFinder)?
+    private var pick = ObjectPickModel()
+    private var globalOrigin = CGPoint.zero
     private let snapshot: CapturedImage
     private let style: OverlayStyle
     private var mouse: CGPoint?
@@ -17,6 +21,7 @@ final class RegionOverlayView: NSView {
     var onRelease: (() -> Void)?
     var onFinish: ((CGRect) -> Void)?
     var onCancel: (() -> Void)?
+    var onPick: ((PickCandidate) -> Void)?
 
     /// True while the user is selecting on a different display.
     var isLocked = false { didSet { needsDisplay = true } }
@@ -35,6 +40,16 @@ final class RegionOverlayView: NSView {
             let initial = FixedSizePreference.load(default: presets.first ?? CGSize(width: 800, height: 600))
             self.fixed = FixedSizeSelectionModel(bounds: bounds, scale: snapshot.scale, sizePx: initial)
         }
+    }
+
+    /// Window/object mode.
+    init(frame: CGRect, snapshot: CapturedImage, style: OverlayStyle, finder: any PickTargetFinder, globalOrigin: CGPoint) {
+        self.model = RegionSelectionModel(bounds: CGRect(origin: .zero, size: frame.size))
+        self.snapshot = snapshot
+        self.style = style
+        self.finder = finder
+        self.globalOrigin = globalOrigin
+        super.init(frame: frame)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -60,7 +75,7 @@ final class RegionOverlayView: NSView {
         guard let window else { return }
         let inWindow = window.mouseLocationOutsideOfEventStream
         let p = convert(inWindow, from: nil)
-        if bounds.contains(p) { mouse = p; fixed?.move(to: p) }
+        if bounds.contains(p) { track(p) }
     }
 
     // MARK: Mouse
@@ -74,10 +89,19 @@ final class RegionOverlayView: NSView {
     private func track(_ p: CGPoint) {
         mouse = p
         fixed?.move(to: p)
+        if let finder {
+            pick.update(finder.candidates(at: CGPoint(x: globalOrigin.x + p.x, y: globalOrigin.y + p.y)))
+        }
         needsDisplay = true
     }
 
     override func mouseDown(with event: NSEvent) {
+        if finder != nil {   // window/object mode: a click captures the highlighted candidate
+            window?.makeKey()
+            track(point(for: event))
+            if let candidate = pick.current { onPick?(candidate) }
+            return
+        }
         if fixed != nil {   // fixed-size mode: a click captures the rectangle under the pointer
             window?.makeKey()
             let p = point(for: event)
@@ -96,6 +120,7 @@ final class RegionOverlayView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if finder != nil { track(point(for: event)); return }
         if fixed != nil { track(point(for: event)); return }
         let p = point(for: event)
         model.drag(to: p)
@@ -104,7 +129,7 @@ final class RegionOverlayView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        if fixed != nil { return }
+        if fixed != nil || finder != nil { return }
         if let rect = model.end(at: point(for: event)) {
             onFinish?(rect)
         } else {
@@ -114,6 +139,7 @@ final class RegionOverlayView: NSView {
     }
 
     override func rightMouseDown(with event: NSEvent) {
+        if finder != nil { return }
         if fixed != nil { showPresetMenu(for: event) } else { resetSelection() }
     }
 
@@ -170,7 +196,19 @@ final class RegionOverlayView: NSView {
         needsDisplay = true
     }
 
+    private func pickKeyDown(_ event: NSEvent) {
+        switch event.keyCode {
+        case 53: onCancel?()
+        case 36, 76: if let candidate = pick.current { onPick?(candidate) } else { NSSound.beep() }
+        case 126: pick.selectParent()   // Up: the surrounding element
+        case 125: pick.selectChild()    // Down: back to the inner element
+        default: super.keyDown(with: event)
+        }
+        needsDisplay = true
+    }
+
     override func keyDown(with event: NSEvent) {
+        if finder != nil { pickKeyDown(event); return }
         if fixed != nil { fixedKeyDown(event); return }
         let step: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
         switch event.keyCode {
@@ -198,7 +236,15 @@ final class RegionOverlayView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let dim = NSBezierPath(rect: bounds)
-        let selection = fixed != nil ? (mouse != nil ? fixed?.selection : nil) : model.selection
+        let selection: CGRect?
+        if finder != nil {
+            let local = pick.current.map { $0.rect.offsetBy(dx: -globalOrigin.x, dy: -globalOrigin.y).intersection(bounds) }
+            selection = (mouse != nil && local?.isNull == false) ? local : nil
+        } else if fixed != nil {
+            selection = mouse != nil ? fixed?.selection : nil
+        } else {
+            selection = model.selection
+        }
         if let selection {
             dim.appendRect(selection)
             dim.windingRule = .evenOdd
@@ -214,7 +260,13 @@ final class RegionOverlayView: NSView {
             border.stroke()
             drawSizeLabel(for: selection)
         }
-        if let mouse { drawLoupe(at: mouse) }
+        if finder != nil {
+            drawPill(pick.candidates.count > 1 ? "Click to capture   ↑ ↓ choose parent / child   Esc cancel"
+                                                : "Click to capture a window   Esc cancel",
+                     at: CGPoint(x: bounds.midX - 150, y: 24))
+        } else if let mouse {
+            drawLoupe(at: mouse)
+        }
     }
 
     private func drawPill(_ text: String, at origin: CGPoint) {

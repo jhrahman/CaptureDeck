@@ -75,6 +75,9 @@ private struct KindRecordingSelector: RegionSelecting {
         await box.set(kind)
         throw CaptureError.cancelled
     }
+    func pickTarget(on snapshots: [DisplaySnapshot], finder: any PickTargetFinder) async throws -> CaptureTarget {
+        throw CaptureError.cancelled
+    }
 }
 private actor KindBox { var kind: RegionSelectionKind?; func set(_ k: RegionSelectionKind) { kind = k } }
 

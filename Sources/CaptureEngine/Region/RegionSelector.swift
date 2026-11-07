@@ -8,8 +8,17 @@ public struct RegionSelector: RegionSelecting {
     public init(style: OverlayStyle = OverlayStyle()) { self.style = style }
 
     public func selectRegion(on snapshots: [DisplaySnapshot], kind: RegionSelectionKind) async throws -> CaptureTarget {
-        try await RegionSelectionSession(snapshots: snapshots, style: style, kind: kind).run()
+        try await RegionSelectionSession(snapshots: snapshots, style: style, mode: .region(kind)).run()
     }
+
+    public func pickTarget(on snapshots: [DisplaySnapshot], finder: any PickTargetFinder) async throws -> CaptureTarget {
+        try await RegionSelectionSession(snapshots: snapshots, style: style, mode: .pick(finder)).run()
+    }
+}
+
+private enum SessionMode {
+    case region(RegionSelectionKind)
+    case pick(any PickTargetFinder)
 }
 
 /// Borderless window that can take keyboard focus (needed for Esc / Return / Tab).
@@ -23,15 +32,15 @@ private final class OverlayWindow: NSWindow {
 private final class RegionSelectionSession {
     private let snapshots: [DisplaySnapshot]
     private let style: OverlayStyle
-    private let kind: RegionSelectionKind
+    private let mode: SessionMode
     private var windows: [OverlayWindow] = []
     private var views: [RegionOverlayView] = []
     private var continuation: CheckedContinuation<CaptureTarget, any Error>?
 
-    init(snapshots: [DisplaySnapshot], style: OverlayStyle, kind: RegionSelectionKind) {
+    init(snapshots: [DisplaySnapshot], style: OverlayStyle, mode: SessionMode) {
         self.snapshots = snapshots
         self.style = style
-        self.kind = kind
+        self.mode = mode
     }
 
     func run() async throws -> CaptureTarget {
@@ -57,7 +66,14 @@ private final class RegionSelectionSession {
             backdrop.layer?.contents = snapshot.image.cgImage
             backdrop.layer?.contentsGravity = .resize
 
-            let overlay = RegionOverlayView(frame: backdrop.bounds, snapshot: snapshot.image, style: style, kind: kind)
+            let overlay: RegionOverlayView
+            switch mode {
+            case .region(let kind):
+                overlay = RegionOverlayView(frame: backdrop.bounds, snapshot: snapshot.image, style: style, kind: kind)
+            case .pick(let finder):
+                overlay = RegionOverlayView(frame: backdrop.bounds, snapshot: snapshot.image, style: style, finder: finder, globalOrigin: snapshot.globalBounds.origin)
+                overlay.onPick = { [weak self] candidate in self?.finish(.success(Self.target(for: candidate, on: snapshot))) }
+            }
             overlay.autoresizingMask = [.width, .height]
             overlay.onClaim = { [weak self, weak overlay] in self?.lockOthers(except: overlay) }
             overlay.onRelease = { [weak self] in self?.unlockAll() }
@@ -81,6 +97,19 @@ private final class RegionSelectionSession {
         NSCursor.crosshair.set()
     }
 
+    /// Windows are captured as windows; elements become a rectangle in this display's points.
+    private static func target(for candidate: PickCandidate, on snapshot: DisplaySnapshot) -> CaptureTarget {
+        switch candidate.kind {
+        case .window(let id):
+            return .window(id)
+        case .element:
+            let local = candidate.rect
+                .offsetBy(dx: -snapshot.globalBounds.minX, dy: -snapshot.globalBounds.minY)
+                .intersection(CGRect(origin: .zero, size: snapshot.globalBounds.size))
+            return .rect(local.isNull ? .zero : local, display: snapshot.displayID)
+        }
+    }
+
     private func lockOthers(except active: RegionOverlayView?) {
         for view in views { view.isLocked = (view !== active) }
     }
@@ -92,7 +121,7 @@ private final class RegionSelectionSession {
     private func finish(_ result: Result<CaptureTarget, any Error>) {
         guard let continuation else { return }  // resolve once
         self.continuation = nil
-        for view in views { view.onClaim = nil; view.onRelease = nil; view.onFinish = nil; view.onCancel = nil }
+        for view in views { view.onClaim = nil; view.onRelease = nil; view.onFinish = nil; view.onCancel = nil; view.onPick = nil }
         for window in windows { window.orderOut(nil) }
         windows.removeAll()
         views.removeAll()

@@ -6,11 +6,15 @@ public struct DisplaySnapshot: Sendable {
     public let displayID: CGDirectDisplayID
     /// Position of the display in AppKit's global screen coordinates (used to place the overlay window).
     public let frame: CGRect
+    /// The display's rectangle in global coordinates with the origin at the top-left of the primary
+    /// display (the coordinate space of window lists and the Accessibility API).
+    public let globalBounds: CGRect
     public let image: CapturedImage
 
-    public init(displayID: CGDirectDisplayID, frame: CGRect, image: CapturedImage) {
+    public init(displayID: CGDirectDisplayID, frame: CGRect, globalBounds: CGRect? = nil, image: CapturedImage) {
         self.displayID = displayID
         self.frame = frame
+        self.globalBounds = globalBounds ?? CGRect(origin: .zero, size: frame.size)
         self.image = image
     }
 }
@@ -18,9 +22,11 @@ public struct DisplaySnapshot: Sendable {
 public struct DisplayInfo: Sendable, Equatable {
     public let id: CGDirectDisplayID
     public let frame: CGRect
-    public init(id: CGDirectDisplayID, frame: CGRect) {
+    public let globalBounds: CGRect
+    public init(id: CGDirectDisplayID, frame: CGRect, globalBounds: CGRect? = nil) {
         self.id = id
         self.frame = frame
+        self.globalBounds = globalBounds ?? CGRect(origin: .zero, size: frame.size)
     }
 }
 
@@ -38,6 +44,10 @@ public enum RegionSelectionKind: Sendable, Equatable {
 public protocol RegionSelecting: Sendable {
     /// Throws `CaptureError.cancelled` if the user backs out.
     func selectRegion(on snapshots: [DisplaySnapshot], kind: RegionSelectionKind) async throws -> CaptureTarget
+
+    /// Hover to highlight a window or element, click to choose. Returns `.window` for a whole window
+    /// or `.rect` (display points) for an element. Throws `CaptureError.cancelled` on Esc.
+    func pickTarget(on snapshots: [DisplaySnapshot], finder: any PickTargetFinder) async throws -> CaptureTarget
 }
 
 public struct OverlayStyle: @unchecked Sendable {
@@ -50,7 +60,8 @@ public extension DisplayLocator {
         await MainActor.run {
             NSScreen.screens.compactMap { screen in
                 guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return nil }
-                return DisplayInfo(id: number.uint32Value, frame: screen.frame)
+                let id = number.uint32Value
+                return DisplayInfo(id: id, frame: screen.frame, globalBounds: CGDisplayBounds(id))
             }
         }
     }
