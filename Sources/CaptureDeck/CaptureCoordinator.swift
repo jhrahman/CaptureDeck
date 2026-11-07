@@ -41,6 +41,9 @@ final class CaptureCoordinator {
     private let clipboard: ClipboardManager
     private let lastCapture: LastCaptureStore
     private var isCapturing = false
+    /// Hooks around the actual capture (the panel hides itself so it is not in the screenshot).
+    var beforeCapture: (@MainActor () async -> Void)?
+    var afterCapture: (@MainActor () -> Void)?
 
     init(modes: [any CaptureMode], lastCapture: LastCaptureStore, grabber: any ScreenGrabber = ScreenCaptureKitGrabber(), clipboard: ClipboardManager = ClipboardManager()) {
         self.modes = modes
@@ -64,6 +67,8 @@ final class CaptureCoordinator {
 
         let settings = CaptureSettings.load()
         if settings.delaySeconds > 0 { await CountdownHUD().run(seconds: settings.delaySeconds) }
+        await beforeCapture?()
+        defer { afterCapture?() }
         do {
             let result = try await mode.run(CaptureContext(grabber: grabber, includeCursor: settings.includeCursor))
             try deliver(result, settings: settings)

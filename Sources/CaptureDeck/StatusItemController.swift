@@ -1,17 +1,23 @@
 import AppKit
 import CaptureEngine
+import CoreModels
 import DesignSystem
 
 /// Owns the menu bar icon and its menu.
 @MainActor
-final class StatusItemController: NSObject {
+final class StatusItemController: NSObject, NSMenuDelegate {
+    static let togglePanelShortcut = KeyShortcut.digit(0, [.control, .shift])
+
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let appearance: AppearanceController
     private let coordinator: CaptureCoordinator
+    private let panel: CapturePanelController
+    private var toggleItem: NSMenuItem?
 
-    init(appearance: AppearanceController, coordinator: CaptureCoordinator) {
+    init(appearance: AppearanceController, coordinator: CaptureCoordinator, panel: CapturePanelController) {
         self.appearance = appearance
         self.coordinator = coordinator
+        self.panel = panel
         super.init()
         statusItem.button?.image = Self.menuBarImage()
         statusItem.button?.toolTip = "CaptureDeck"
@@ -38,6 +44,13 @@ final class StatusItemController: NSObject {
         }
         menu.addItem(.separator())
 
+        let toggle = NSMenuItem(title: "Hide Capture Panel", action: #selector(togglePanel), keyEquivalent: Self.togglePanelShortcut.keyLabel)
+        toggle.keyEquivalentModifierMask = [.control, .shift]
+        toggle.target = self
+        toggleItem = toggle
+        menu.addItem(toggle)
+        menu.delegate = self
+
         let appearanceItem = NSMenuItem(title: "Appearance", action: nil, keyEquivalent: "")
         let submenu = NSMenu()
         for option in AppearancePreference.allCases {
@@ -54,6 +67,12 @@ final class StatusItemController: NSObject {
         menu.addItem(NSMenuItem(title: "Quit CaptureDeck", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
     }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        toggleItem?.title = panel.isVisible ? "Hide Capture Panel" : "Show Capture Panel"
+    }
+
+    @objc private func togglePanel() { panel.toggle() }
 
     @objc private func capture(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String else { return }

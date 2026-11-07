@@ -24,14 +24,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ], lastCapture: lastCapture)
     }()
     private var statusItem: StatusItemController?
+    private var panel: CapturePanelController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         appearance.apply()
-        statusItem = StatusItemController(appearance: appearance, coordinator: coordinator)
+        let panel = CapturePanelController(modes: coordinator.modes) { [coordinator] id in coordinator.run(modeID: id) }
+        self.panel = panel
+        coordinator.beforeCapture = { await panel.suspend() }
+        coordinator.afterCapture = { panel.resume() }
+        statusItem = StatusItemController(appearance: appearance, coordinator: coordinator, panel: panel)
         registerHotkeys()
+        panel.showAtLaunch()
     }
 
     private func registerHotkeys() {
+        do {
+            try hotkeys.register(name: "togglePanel", shortcut: StatusItemController.togglePanelShortcut) { [weak self] in
+                self?.panel?.toggle()
+            }
+        } catch {
+            log.error("Could not register the show/hide panel hotkey: \(String(describing: error), privacy: .public)")
+        }
         for mode in coordinator.modes {
             guard let shortcut = mode.defaultShortcut else { continue }
             do {
