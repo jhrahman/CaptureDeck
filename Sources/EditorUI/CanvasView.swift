@@ -18,6 +18,9 @@ final class CanvasView: NSView {
     /// The selected area (image pixels) drawn over the picture, and what to do with the mouse and keys.
     var selection: EditorSelection? { didSet { needsDisplay = true } }
     var showSelectionSize = true { didSet { needsDisplay = true } }
+    var annotations: [Annotation] = [] { didSet { needsDisplay = true } }
+    var selectedAnnotationIDs: [UUID] = [] { didSet { needsDisplay = true } }
+    var previewProvider: (() -> [Annotation])?
     var toolContext: (() -> ToolContext)?
     var activeTool: (any EditorTool)?
     var onToolKey: ((String) -> Bool)?       // single-letter tool switching
@@ -89,7 +92,43 @@ final class CanvasView: NSView {
         context.draw(image, in: CGRect(origin: .zero, size: bounds.size))
         context.restoreGState()
 
+        // Annotations sit on top of the picture, in order (the view is flipped, so image pixels draw as they are).
+        AnnotationRenderer.draw(annotations, in: context)
+        if let preview = previewProvider?(), !preview.isEmpty { AnnotationRenderer.draw(preview, in: context) }
+        drawObjectSelection(in: context)
+
         if let selection { drawSelection(selection, in: context) }
+    }
+
+    // MARK: Object selection overlay
+
+    private func drawObjectSelection(in context: CGContext) {
+        let chosen = annotations.filter { selectedAnnotationIDs.contains($0.id) }
+        guard var union = chosen.first?.bounds else { return }
+        let unit = 1 / max(enclosingScrollView?.magnification ?? 1, 0.0001)      // image pixels per screen point
+        context.saveGState()
+        context.setLineWidth(unit)
+        for annotation in chosen {
+            let box = annotation.bounds.insetBy(dx: -CGFloat(annotation.style.lineWidth) / 2, dy: -CGFloat(annotation.style.lineWidth) / 2)
+            union = union.union(annotation.bounds)
+            context.setStrokeColor(CGColor(red: 0.2, green: 0.5, blue: 1, alpha: 1))
+            context.setLineDash(phase: 0, lengths: [4 * unit, 3 * unit])
+            context.stroke(box)
+        }
+        context.setLineDash(phase: 0, lengths: [])
+        let handle = 7 * unit
+        let xs: [CGFloat] = [union.minX, union.midX, union.maxX]
+        let ys: [CGFloat] = [union.minY, union.midY, union.maxY]
+        for (i, x) in xs.enumerated() {
+            for (j, y) in ys.enumerated() where !(i == 1 && j == 1) {
+                let box = CGRect(x: x - handle / 2, y: y - handle / 2, width: handle, height: handle)
+                context.setFillColor(CGColor(gray: 1, alpha: 1))
+                context.fill(box)
+                context.setStrokeColor(CGColor(red: 0.2, green: 0.5, blue: 1, alpha: 1))
+                context.stroke(box)
+            }
+        }
+        context.restoreGState()
     }
 
     // MARK: Selection overlay

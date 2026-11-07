@@ -1,6 +1,7 @@
 import CaptureEngine
 import CoreModels
 import DesignSystem
+import EditorEngine
 import EditorUI
 import Foundation
 import Platform
@@ -152,6 +153,28 @@ enum AppSettings {
                   help: "Used by Canvas Size and Rotate by Angle for the space they add. Set the opacity to 0 for transparent.",
                   defaultValue: .string("#FFFFFFFF"), control: .color, order: 1),
         ]
+
+        // Draw tools: every drawing tool's remembered look, generated from the tool list so a new tool
+        // gets its settings without touching this file.
+        for tool in EditorToolRegistry.descriptors where tool.kind == .draw {
+            for (index, property) in tool.styleProperties.enumerated() {
+                let id = ToolStyleSetting.id(tool, property)
+                let style = tool.defaultStyle
+                func def(_ title: String, _ value: SettingValue, _ control: SettingDefinition.Control) -> SettingDefinition {
+                    .init(id: id, section: .drawing, group: tool.title, title: title, defaultValue: value, control: control, order: index)
+                }
+                switch property {
+                case .stroke: defs.append(def("Color", .string(style.strokeColor.hex), .color))
+                case .fill: defs.append(def("Fill color", .string(style.fillColor.hex), .color))
+                case .width: defs.append(def("Line width", .int(Int(style.lineWidth)), .stepper(0...100, unit: "px")))
+                case .opacity: defs.append(def("Opacity", .double(style.opacity), .slider(0.05...1, step: 0.05)))
+                case .dash:
+                    defs.append(def("Line style", .string(style.dash.rawValue),
+                                    .choice(DashStyle.allCases.map { .init($0.rawValue, $0.rawValue.capitalized) })))
+                case .cornerRadius: defs.append(def("Corner radius", .int(Int(style.cornerRadius)), .stepper(0...200, unit: "px")))
+                }
+            }
+        }
 
         // Appearance
         defs.append(.init(id: SettingID.appearance, section: .appearance, group: "Theme", title: "Theme",

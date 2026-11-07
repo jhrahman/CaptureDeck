@@ -146,3 +146,36 @@ struct DocumentSelectionTests {
         #expect(!doc.isDirty && !doc.canUndo)
     }
 }
+
+struct SelectionTransformTests {
+    @Test func transformMapsOldRectOntoNewRect() {
+        let old = CGRect(x: 10, y: 20, width: 40, height: 20), new = CGRect(x: 0, y: 0, width: 80, height: 10)
+        let t = RectSelectionEditing.transform(from: old, to: new)
+        #expect(old.applying(t) == new)
+    }
+
+    @Test func flatShapesAreOnlyMovedAlongTheirFlatAxis() {
+        let line = CGRect(x: 10, y: 50, width: 40, height: 0)
+        let t = RectSelectionEditing.transform(from: line, to: CGRect(x: 20, y: 60, width: 80, height: 5))
+        let mapped = CGPoint(x: 10, y: 50).applying(t)
+        #expect(mapped == CGPoint(x: 20, y: 60))                        // no NaN, no blow-up
+        #expect(CGPoint(x: 50, y: 50).applying(t) == CGPoint(x: 100, y: 60))
+    }
+}
+
+struct ObjectHandleTests {
+    private let r = CGRect(x: 200, y: 150, width: 400, height: 300)
+
+    @Test func onlyTheHandleSquaresGrabNotTheWholeEdge() {
+        #expect(RectSelectionEditing.handleHit(rect: r, point: CGPoint(x: 600, y: 450), tolerance: 10) == .bottomRight)
+        #expect(RectSelectionEditing.handleHit(rect: r, point: CGPoint(x: 400, y: 152), tolerance: 10) == .top)
+        #expect(RectSelectionEditing.handleHit(rect: r, point: CGPoint(x: 200, y: 340), tolerance: 10) == nil)   // on the left edge, between handles
+        #expect(RectSelectionEditing.handleHit(rect: r, point: CGPoint(x: 400, y: 300), tolerance: 10) == nil)   // inside
+    }
+
+    @Test func theNearestHandleWinsOnSmallObjects() {
+        let tiny = CGRect(x: 100, y: 100, width: 6, height: 6)
+        #expect(RectSelectionEditing.handleHit(rect: tiny, point: CGPoint(x: 100, y: 100), tolerance: 10) == .topLeft)
+        #expect(RectSelectionEditing.handleHit(rect: tiny, point: CGPoint(x: 106, y: 106), tolerance: 10) == .bottomRight)
+    }
+}

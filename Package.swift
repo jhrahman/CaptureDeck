@@ -36,6 +36,7 @@ let package = Package(
         .testTarget(name: "DesignSystemTests", dependencies: ["DesignSystem"]),
         .testTarget(name: "CaptureEngineTests", dependencies: ["CaptureEngine", "CoreModels"]),
         .testTarget(name: "SettingsTests", dependencies: ["Settings", "CoreModels"]),
+        .testTarget(name: "EditorUITests", dependencies: ["EditorUI", "EditorEngine", "CoreModels"]),
         .testTarget(name: "EditorEngineTests", dependencies: ["EditorEngine", "CoreModels"]),
         .testTarget(name: "PlatformTests", dependencies: ["Platform", "CoreModels"]),
     ]

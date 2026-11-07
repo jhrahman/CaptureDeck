@@ -124,6 +124,13 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         }
     }
 
+    // MARK: Objects (annotations)
+
+    @objc func duplicateObjects(_ sender: Any?) { editorDocument.duplicateAnnotations(ids: editorDocument.selectedAnnotationIDs) }
+    @objc func deleteObjects(_ sender: Any?) { editorDocument.deleteSelectedAnnotations() }
+    @objc func bringObjectsToFront(_ sender: Any?) { editorDocument.reorderAnnotations(ids: editorDocument.selectedAnnotationIDs, .toFront) }
+    @objc func sendObjectsToBack(_ sender: Any?) { editorDocument.reorderAnnotations(ids: editorDocument.selectedAnnotationIDs, .toBack) }
+
     @objc func selectEverything(_ sender: Any?) { editorDocument.selectAll() }
     @objc func deselect(_ sender: Any?) { editorDocument.clearSelection() }
     @objc func cropToSelection(_ sender: Any?) { editorDocument.cropToSelection() }
@@ -230,6 +237,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         case #selector(copyImage(_:)):
             item.title = editorDocument.selection == nil ? "Copy Image" : "Copy Selection"
             return true
+        case #selector(duplicateObjects(_:)), #selector(deleteObjects(_:)), #selector(bringObjectsToFront(_:)), #selector(sendObjectsToBack(_:)):
+            return !editorDocument.selectedAnnotationIDs.isEmpty
         case #selector(deselect(_:)), #selector(cropToSelection(_:)), #selector(duplicateSelection(_:)):
             return editorDocument.selection != nil
         case #selector(chooseTool(_:)):

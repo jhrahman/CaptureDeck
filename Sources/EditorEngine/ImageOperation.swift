@@ -101,10 +101,7 @@ public enum ImageOperation: Sendable, Equatable, Codable {
 
         case .rotateByAngle(let degrees, let fill):
             let radians = degrees * .pi / 180
-            let c = abs(cos(radians)), sn = abs(sin(radians))
-            // The small tolerance stops floating-point noise (2.0000000000000004) from adding a pixel at 90°.
-            let nw = Int((Double(w) * c + Double(h) * sn - 1e-9).rounded(.up))
-            let nh = Int((Double(w) * sn + Double(h) * c - 1e-9).rounded(.up))
+            let (nw, nh) = Self.rotatedSize(width: w, height: h, degrees: degrees)
             guard nw >= 1, nh >= 1, nw <= 30_000, nh <= 30_000 else { return nil }
             guard let ctx = Self.context(width: nw, height: nh, like: image) else { return nil }
             ctx.setFillColor(fill.cgColor)
@@ -121,6 +118,45 @@ public enum ImageOperation: Sendable, Equatable, Codable {
             ctx.scaleBy(x: 1, y: -1)
             ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
             return ctx.makeImage()
+        }
+    }
+
+    /// The canvas needed to hold a picture rotated by `degrees`.
+    static func rotatedSize(width w: Int, height h: Int, degrees: Double) -> (Int, Int) {
+        let radians = degrees * .pi / 180
+        let c = abs(cos(radians)), sn = abs(sin(radians))
+        // The small tolerance stops floating-point noise (2.0000000000000004) from adding a pixel at 90°.
+        return (Int((Double(w) * c + Double(h) * sn - 1e-9).rounded(.up)),
+                Int((Double(w) * sn + Double(h) * c - 1e-9).rounded(.up)))
+    }
+
+    /// How points on the old picture map onto the new one, so annotations stay on the thing they point at.
+    /// Coordinates are image pixels, origin top-left.
+    public func annotationTransform(imageWidth w: Int, imageHeight h: Int) -> CGAffineTransform {
+        let W = CGFloat(w), H = CGFloat(h)
+        switch self {
+        case .crop(let rect):
+            let r = rect.integral.intersection(CGRect(x: 0, y: 0, width: W, height: H))
+            return r.isNull ? .identity : CGAffineTransform(translationX: -r.minX, y: -r.minY)
+        case .resize(let nw, let nh):
+            return CGAffineTransform(scaleX: CGFloat(nw) / max(W, 1), y: CGFloat(nh) / max(H, 1))
+        case .rotate(let turns):
+            switch ((turns % 4) + 4) % 4 {
+            case 1: return CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: H, ty: 0)      // 90° clockwise
+            case 2: return CGAffineTransform(a: -1, b: 0, c: 0, d: -1, tx: W, ty: H)
+            case 3: return CGAffineTransform(a: 0, b: -1, c: 1, d: 0, tx: 0, ty: W)      // 90° counter-clockwise
+            default: return .identity
+            }
+        case .flipHorizontal: return CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: W, ty: 0)
+        case .flipVertical: return CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: H)
+        case .canvasSize(let nw, let nh, let anchor, _):
+            let f = anchor.fractions
+            return CGAffineTransform(translationX: (CGFloat(nw - w) * f.x).rounded(), y: (CGFloat(nh - h) * f.y).rounded())
+        case .rotateByAngle(let degrees, _):
+            let (nw, nh) = Self.rotatedSize(width: w, height: h, degrees: degrees)
+            return CGAffineTransform(translationX: -W / 2, y: -H / 2)
+                .concatenating(CGAffineTransform(rotationAngle: CGFloat(degrees * .pi / 180)))
+                .concatenating(CGAffineTransform(translationX: CGFloat(nw) / 2, y: CGFloat(nh) / 2))
         }
     }
 

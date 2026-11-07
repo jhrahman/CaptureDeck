@@ -64,6 +64,13 @@ enum EditorMenu {
             image.addItem(item)
         }
 
+        let object = submenu("Object")
+        add("Duplicate", to: object, action: Selector(("duplicateObjects:")), key: "j")
+        add("Delete", to: object, action: Selector(("deleteObjects:")), key: String(UnicodeScalar(NSBackspaceCharacter)!), modifiers: [])
+        object.addItem(.separator())
+        add("Bring to Front", to: object, action: Selector(("bringObjectsToFront:")), key: "]", modifiers: [.command, .option])
+        add("Send to Back", to: object, action: Selector(("sendObjectsToBack:")), key: "[", modifiers: [.command, .option])
+
         // Tools: generated from the tool registry, with each tool's single-key shortcut shown.
         let tools = submenu("Tools")
         for descriptor in EditorToolRegistry.descriptors {

@@ -85,6 +85,29 @@ public enum RectSelectionEditing {
         return result ?? start
     }
 
+    /// The eight resize handles of an object's bounds: only the small squares at the corners and edge midpoints grab,
+    /// so the outline between them stays free for moving the object.
+    public static func handleHit(rect: CGRect, point: CGPoint, tolerance: CGFloat) -> SelectionHandle? {
+        let handles: [(SelectionHandle, CGPoint)] = [
+            (.topLeft, CGPoint(x: rect.minX, y: rect.minY)), (.top, CGPoint(x: rect.midX, y: rect.minY)),
+            (.topRight, CGPoint(x: rect.maxX, y: rect.minY)), (.right, CGPoint(x: rect.maxX, y: rect.midY)),
+            (.bottomRight, CGPoint(x: rect.maxX, y: rect.maxY)), (.bottom, CGPoint(x: rect.midX, y: rect.maxY)),
+            (.bottomLeft, CGPoint(x: rect.minX, y: rect.maxY)), (.left, CGPoint(x: rect.minX, y: rect.midY)),
+        ]
+        return handles
+            .map { ($0.0, hypot(point.x - $0.1.x, point.y - $0.1.y)) }
+            .filter { $0.1 <= tolerance }
+            .min { $0.1 < $1.1 }?.0
+    }
+
+    /// The scale-and-move that turns `old` into `new`. An axis where `old` has no extent (a horizontal line)
+    /// is only moved, never scaled, so nothing divides by zero.
+    public static func transform(from old: CGRect, to new: CGRect) -> CGAffineTransform {
+        let sx = old.width > 0 ? new.width / old.width : 1
+        let sy = old.height > 0 ? new.height / old.height : 1
+        return CGAffineTransform(a: sx, b: 0, c: 0, d: sy, tx: new.minX - old.minX * sx, ty: new.minY - old.minY * sy)
+    }
+
     /// Moves or resizes with the arrow keys: plain arrows move, Shift+arrows (`resize`) change width/height.
     public static func nudged(_ rect: CGRect, dx: CGFloat, dy: CGFloat, resize: Bool, within bounds: CGRect) -> CGRect {
         if resize {

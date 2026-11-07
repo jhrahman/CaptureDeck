@@ -21,9 +21,10 @@ public struct SettingsSection: Hashable, Sendable, Identifiable {
     public static let hotkeys = SettingsSection(id: "hotkeys", title: "Hotkeys", symbol: "keyboard", order: 2)
     public static let panel = SettingsSection(id: "panel", title: "Capture Panel", symbol: "rectangle.3.group", order: 3)
     public static let editor = SettingsSection(id: "editor", title: "Editor", symbol: "slider.horizontal.3", order: 4)
-    public static let output = SettingsSection(id: "output", title: "Output", symbol: "square.and.arrow.down", order: 5)
-    public static let appearance = SettingsSection(id: "appearance", title: "Appearance", symbol: "paintbrush", order: 6)
-    public static let advanced = SettingsSection(id: "advanced", title: "Advanced", symbol: "wrench.and.screwdriver", order: 7)
+    public static let drawing = SettingsSection(id: "drawing", title: "Draw Tools", symbol: "pencil.and.outline", order: 5)
+    public static let output = SettingsSection(id: "output", title: "Output", symbol: "square.and.arrow.down", order: 6)
+    public static let appearance = SettingsSection(id: "appearance", title: "Appearance", symbol: "paintbrush", order: 7)
+    public static let advanced = SettingsSection(id: "advanced", title: "Advanced", symbol: "wrench.and.screwdriver", order: 8)
 }
 
 /// Everything the app knows about one setting. The Settings window, validation, reset and
