@@ -143,6 +143,18 @@ struct ToolOptionsView: View {
                 Image(systemName: "text.alignright").tag(Align.right).accessibilityLabel("Align right")
             }
             .pickerStyle(.segmented).labelsHidden().frame(width: 96)
+        case .strength:
+            labelled(model.title(.strength, default: "Strength")) {
+                Slider(value: Binding(get: { model.style.strength }, set: { v in model.edit { $0.strength = v.rounded() } }), in: 1...60)
+                    .frame(width: 120)
+                Text("\(Int(model.style.strength))").monospacedDigit().frame(width: 24, alignment: .trailing).font(.caption)
+            }
+        case .zoom:
+            labelled(model.title(.zoom, default: "Zoom")) {
+                Slider(value: Binding(get: { model.style.strength }, set: { v in model.edit { $0.strength = v.rounded() } }), in: 2...8, step: 1)
+                    .frame(width: 90)
+                Text("\(Int(model.style.strength))×").monospacedDigit().frame(width: 26, alignment: .trailing).font(.caption)
+            }
         case .cornerRadius:
             labelled("Corners") {
                 Slider(value: Binding(get: { model.style.cornerRadius }, set: { v in model.edit { $0.cornerRadius = v.rounded() } }), in: 0...100)

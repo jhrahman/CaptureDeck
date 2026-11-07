@@ -247,8 +247,10 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
         optionsModel.titles = descriptor.propertyTitles
         optionsModel.hint = nil
         if let first = selected.first {
-            // Editing objects: show (and change) their look.
-            optionsModel.properties = descriptor.kind == .draw ? descriptor.styleProperties : StyleProperty.allCases.filter { $0 != .fontName }
+            // Editing objects: show only what applies to the selected kinds of shape, under their usual names.
+            let applicable = EditorToolRegistry.properties(forShapeTypes: Set(selected.map { $0.shape.shapeType }))
+            optionsModel.properties = applicable.properties
+            optionsModel.titles = applicable.titles
             optionsModel.style = first.style
             optionsModel.title = selected.count == 1 ? "Selected" : "\(selected.count) selected"
         } else if descriptor.kind == .draw {
@@ -294,6 +296,7 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
             if !offered.contains(.bold) { look.bold = changed[index].style.bold }
             if !offered.contains(.italic) { look.italic = changed[index].style.italic }
             if !offered.contains(.alignment) { look.alignment = changed[index].style.alignment }
+            if !offered.contains(.strength) && !offered.contains(.zoom) { look.strength = changed[index].style.strength }
             changed[index].style = look
         }
         document.previewAnnotations(changed)

@@ -96,8 +96,8 @@ final class CanvasView: NSView {
         context.restoreGState()
 
         // Annotations sit on top of the picture, in order (the view is flipped, so image pixels draw as they are).
-        AnnotationRenderer.draw(hiddenAnnotationIDs.isEmpty ? annotations : annotations.filter { !hiddenAnnotationIDs.contains($0.id) }, in: context)
-        if let preview = previewProvider?(), !preview.isEmpty { AnnotationRenderer.draw(preview, in: context) }
+        AnnotationRenderer.draw(hiddenAnnotationIDs.isEmpty ? annotations : annotations.filter { !hiddenAnnotationIDs.contains($0.id) }, in: context, backdrop: image)
+        if let preview = previewProvider?(), !preview.isEmpty { AnnotationRenderer.draw(preview, in: context, backdrop: image) }
         drawObjectSelection(in: context)
 
         if let selection { drawSelection(selection, in: context) }

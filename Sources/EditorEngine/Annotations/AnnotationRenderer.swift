@@ -5,16 +5,24 @@ import CoreModels
 public enum AnnotationRenderer {
     /// Draws into a context whose coordinates are already image pixels with the origin at the top-left
     /// (a flipped view context, or one set up by `render`).
-    public static func draw(_ annotations: [Annotation], in context: CGContext) {
+    /// `backdrop` is the picture under the annotations; effects like blur read from it.
+    public static func draw(_ annotations: [Annotation], in context: CGContext, backdrop: CGImage? = nil) {
+        func drawOne(_ annotation: Annotation) {
+            if let effect = annotation.shape as? any BackdropAnnotationShape {
+                if let backdrop { effect.draw(in: context, style: annotation.style, backdrop: backdrop) }
+            } else {
+                annotation.shape.draw(in: context, style: annotation.style)
+            }
+        }
         for annotation in annotations {
             context.saveGState()
             if annotation.style.opacity < 1 {
                 context.setAlpha(CGFloat(annotation.style.opacity))
                 context.beginTransparencyLayer(auxiliaryInfo: nil)     // stroke and fill fade together
-                annotation.shape.draw(in: context, style: annotation.style)
+                drawOne(annotation)
                 context.endTransparencyLayer()
             } else {
-                annotation.shape.draw(in: context, style: annotation.style)
+                drawOne(annotation)
             }
             context.restoreGState()
         }
@@ -33,7 +41,7 @@ public enum AnnotationRenderer {
         context.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
         context.translateBy(x: 0, y: CGFloat(h))        // from here on: top-left origin, y down
         context.scaleBy(x: 1, y: -1)
-        draw(annotations, in: context)
+        draw(annotations, in: context, backdrop: image)
         return context.makeImage()
     }
 }

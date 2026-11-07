@@ -39,13 +39,15 @@ public struct AnnotationStyle: Equatable, Sendable, Codable {
     public var bold: Bool
     public var italic: Bool
     public var alignment: TextAlignment
+    /// How strong a pixel effect is: blur radius or pixel block size (px), or magnifier zoom.
+    public var strength: Double
 
     public static let defaultFontName = "Helvetica Neue"
 
     public init(strokeColor: RGBAColor, fillColor: RGBAColor = .clear, lineWidth: Double = 4, opacity: Double = 1,
                 dash: DashStyle = .solid, cornerRadius: Double = 0,
                 fontName: String = AnnotationStyle.defaultFontName, fontSize: Double = 28, bold: Bool = false, italic: Bool = false,
-                alignment: TextAlignment = .left) {
+                alignment: TextAlignment = .left, strength: Double = 12) {
         self.strokeColor = strokeColor
         self.fillColor = fillColor
         self.lineWidth = Self.clampWidth(lineWidth)
@@ -57,6 +59,7 @@ public struct AnnotationStyle: Equatable, Sendable, Codable {
         self.bold = bold
         self.italic = italic
         self.alignment = alignment
+        self.strength = strength.isNaN ? 12 : min(max(strength, 1), 200)
     }
 
     public static let defaultStroke = RGBAColor(hex: "#FF3B30FF") ?? .black
@@ -65,7 +68,7 @@ public struct AnnotationStyle: Equatable, Sendable, Codable {
     public static func clampWidth(_ w: Double) -> Double { w.isNaN ? 4 : min(max(w, 0), 200) }
 
     // Missing fields (from older or newer files) fall back to the defaults instead of failing to load.
-    private enum CodingKeys: String, CodingKey { case strokeColor, fillColor, lineWidth, opacity, dash, cornerRadius, fontName, fontSize, bold, italic, alignment }
+    private enum CodingKeys: String, CodingKey { case strokeColor, fillColor, lineWidth, opacity, dash, cornerRadius, fontName, fontSize, bold, italic, alignment, strength }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -80,6 +83,7 @@ public struct AnnotationStyle: Equatable, Sendable, Codable {
             fontSize: try c.decodeIfPresent(Double.self, forKey: .fontSize) ?? 28,
             bold: try c.decodeIfPresent(Bool.self, forKey: .bold) ?? false,
             italic: try c.decodeIfPresent(Bool.self, forKey: .italic) ?? false,
-            alignment: try c.decodeIfPresent(TextAlignment.self, forKey: .alignment) ?? .left)
+            alignment: try c.decodeIfPresent(TextAlignment.self, forKey: .alignment) ?? .left,
+            strength: try c.decodeIfPresent(Double.self, forKey: .strength) ?? 12)
     }
 }

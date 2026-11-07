@@ -61,3 +61,31 @@ struct StepToolTests {
         }
     }
 }
+
+struct SelectedObjectPropertiesTests {
+    @Test func aStepShowsItsOwnPropertiesAndNames() {
+        let result = EditorToolRegistry.properties(forShapeTypes: ["step"])
+        #expect(result.properties == [.fill, .stroke, .opacity, .fontSize] || Set(result.properties) == [.fill, .stroke, .fontSize, .opacity])
+        #expect(result.titles[.fill] == "Circle" && result.titles[.stroke] == "Number")
+    }
+
+    @Test func blurOnlyOffersStrength() {
+        #expect(EditorToolRegistry.properties(forShapeTypes: ["blur"]).properties == [.strength])
+        #expect(EditorToolRegistry.properties(forShapeTypes: ["pixelate"]).titles[.strength] == "Block size")
+    }
+
+    @Test func rectanglesAlsoOfferCornerRadius() {
+        let props = EditorToolRegistry.properties(forShapeTypes: ["rectangle"]).properties
+        #expect(props.contains(.cornerRadius) && props.contains(.fill) && !props.contains(.fontSize))
+    }
+
+    @Test func mixedSelectionsOfferTheUnionWithPlainNames() {
+        let result = EditorToolRegistry.properties(forShapeTypes: ["rectangle", "text"])
+        #expect(result.properties.contains(.fontName) && result.properties.contains(.cornerRadius))
+        #expect(result.titles.isEmpty)
+    }
+
+    @Test func unknownShapesOfferNothing() {
+        #expect(EditorToolRegistry.properties(forShapeTypes: ["hologram"]).properties.isEmpty)
+    }
+}

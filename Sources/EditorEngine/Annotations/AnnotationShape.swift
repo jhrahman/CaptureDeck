@@ -33,6 +33,17 @@ public extension AnnotationShape {
     var shapeType: String { Self.typeID }
 }
 
+/// A shape that works on the picture underneath it (blur, pixelate, spotlight, magnifier), so it needs to see it.
+/// `backdrop` is the original picture, in the same pixel coordinates as the shape.
+public protocol BackdropAnnotationShape: AnnotationShape {
+    func draw(in context: CGContext, style: AnnotationStyle, backdrop: CGImage)
+}
+
+public extension BackdropAnnotationShape {
+    /// Without a backdrop there is nothing to work on.
+    func draw(in context: CGContext, style: AnnotationStyle) {}
+}
+
 /// An annotation on the picture: a shape plus how it looks.
 public struct Annotation: Identifiable, Sendable {
     public let id: UUID
@@ -95,6 +106,10 @@ public enum AnnotationRegistry {
         LineShape.typeID: { try JSONDecoder().decode(LineShape.self, from: $0) },
         PencilShape.typeID: { try JSONDecoder().decode(PencilShape.self, from: $0) },
         HighlighterShape.typeID: { try JSONDecoder().decode(HighlighterShape.self, from: $0) },
+        BlurShape.typeID: { try JSONDecoder().decode(BlurShape.self, from: $0) },
+        PixelateShape.typeID: { try JSONDecoder().decode(PixelateShape.self, from: $0) },
+        SpotlightShape.typeID: { try JSONDecoder().decode(SpotlightShape.self, from: $0) },
+        MagnifierShape.typeID: { try JSONDecoder().decode(MagnifierShape.self, from: $0) },
         TextShape.typeID: { try JSONDecoder().decode(TextShape.self, from: $0) },
         StepShape.typeID: { try JSONDecoder().decode(StepShape.self, from: $0) },
     ]

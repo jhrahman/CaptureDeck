@@ -52,6 +52,10 @@ extension EditorTool {
 public enum StyleProperty: String, Sendable, CaseIterable {
     case stroke, fill, width, opacity, dash, cornerRadius
     case fontName, fontSize, bold, italic, alignment
+    /// Blur radius, pixel block size, or magnifier zoom.
+    case strength
+    /// Magnifier zoom (stored as the style's strength).
+    case zoom
 }
 
 public struct EditorToolDescriptor: Sendable, Identifiable, Equatable {
@@ -136,10 +140,47 @@ public enum EditorToolRegistry {
         defaultStyle: AnnotationStyle(strokeColor: white, fillColor: RGBAColor(hex: "#0A84FFFF") ?? .black, lineWidth: 0, fontSize: 28),
         iconColor: "#5E5CE6", propertyTitles: [.fill: "Circle", .stroke: "Letter", .fontSize: "Size"])
 
+    public static let blur = EditorToolDescriptor(
+        id: "blur", title: "Blur", symbol: "drop.fill", key: "b", kind: .draw, styleProperties: [.strength],
+        defaultStyle: AnnotationStyle(strokeColor: AnnotationStyle.defaultStroke, strength: 12),
+        iconColor: "#2DD4BF", propertyTitles: [.strength: "Blur"])
+    public static let pixelate = EditorToolDescriptor(
+        id: "pixelate", title: "Pixelate", symbol: "square.grid.3x3.fill", key: "x", kind: .draw, styleProperties: [.strength],
+        defaultStyle: AnnotationStyle(strokeColor: AnnotationStyle.defaultStroke, strength: 14),
+        iconColor: "#A3E635", propertyTitles: [.strength: "Block size"])
+
+    /// Which tool draws each kind of shape, so selecting a shape can show that tool's properties and names.
+    static let toolForShapeType: [String: EditorToolDescriptor] = [
+        "rectangle": rectangle, "ellipse": ellipse, "line": line, "pencil": pencil, "highlighter": highlighter,
+        "text": text, "step": step, "blur": blur, "pixelate": pixelate, "spotlight": spotlight, "magnifier": magnifier,
+    ]
+
+    /// The properties that make sense for the selected shapes (the union, in the usual order) and their names.
+    static func properties(forShapeTypes types: Set<String>) -> (properties: [StyleProperty], titles: [StyleProperty: String]) {
+        let tools = types.compactMap { toolForShapeType[$0] }
+        var offered = Set(tools.flatMap(\.styleProperties))
+        if types.contains("rectangle") { offered.insert(.cornerRadius) }                      // rounded rectangles are rectangles
+        let ordered = StyleProperty.allCases.filter { offered.contains($0) }
+        // A single kind of shape keeps its tool's own names; mixed selections use the plain ones.
+        let titles = tools.count == 1 && types.count == 1 ? tools[0].propertyTitles : [:]
+        return (ordered, titles)
+    }
+
+    public static let spotlight = EditorToolDescriptor(
+        id: "spotlight", title: "Spotlight", symbol: "viewfinder.circle.fill", key: "g", kind: .draw,
+        styleProperties: [.stroke, .opacity, .cornerRadius],
+        defaultStyle: AnnotationStyle(strokeColor: .black, opacity: 0.6, cornerRadius: 0),
+        iconColor: "#94A3B8", propertyTitles: [.stroke: "Dim color", .opacity: "Dimming", .cornerRadius: "Rounding"])
+    public static let magnifier = EditorToolDescriptor(
+        id: "magnifier", title: "Magnifier", symbol: "plus.magnifyingglass", key: "m", kind: .draw,
+        styleProperties: [.stroke, .width, .zoom, .opacity],
+        defaultStyle: AnnotationStyle(strokeColor: AnnotationStyle.defaultStroke, lineWidth: 4, strength: 2),
+        iconColor: "#0EA5E9", propertyTitles: [.stroke: "Border"])
+
     /// Every tool, in toolbar order.
     public static let descriptors: [EditorToolDescriptor] = [
         pointer, rectangleSelect, freehandSelect, rectangle, roundedRectangle, ellipse, line, arrow, doubleArrow, pencil, highlighter,
-        text, step, stepLetter,
+        text, step, stepLetter, blur, pixelate, spotlight, magnifier,
     ]
     public static var defaultToolID: String { rectangleSelect.id }
 
@@ -160,6 +201,10 @@ public enum EditorToolRegistry {
             TextTool(),
             StepTool(step, letters: false),
             StepTool(stepLetter, letters: true),
+            ShapeDragTool(blur) { a, b, _ in BlurShape(rect: ShapeDragTool.rect(a, b, square: false)) },
+            ShapeDragTool(pixelate) { a, b, _ in PixelateShape(rect: ShapeDragTool.rect(a, b, square: false)) },
+            ShapeDragTool(spotlight) { a, b, square in SpotlightShape(rect: ShapeDragTool.rect(a, b, square: square)) },
+            ShapeDragTool(magnifier) { a, b, square in MagnifierShape(rect: ShapeDragTool.rect(a, b, square: square)) },
         ]
     }
 }
@@ -186,6 +231,7 @@ public enum ToolStyleSetting {
             case .bold: style.bold = settings.bool(key)
             case .italic: style.italic = settings.bool(key)
             case .alignment: style.alignment = TextAlignment(rawValue: settings.string(key)) ?? style.alignment
+            case .strength, .zoom: style.strength = Double(settings.int(key))
             }
         }
         return style
@@ -208,6 +254,7 @@ public enum ToolStyleSetting {
             case .bold: settings.set(style.bold, for: key)
             case .italic: settings.set(style.italic, for: key)
             case .alignment: settings.set(style.alignment.rawValue, for: key)
+            case .strength, .zoom: settings.set(Int(style.strength.rounded()), for: key)
             }
         }
     }
