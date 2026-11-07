@@ -1,3 +1,4 @@
+import CoreModels
 import Foundation
 
 /// A tab in the Settings window. Adding a new category is just creating a new section.
@@ -44,6 +45,8 @@ public struct SettingDefinition: Sendable, Identifiable {
         case choice([Choice])
         case text(placeholder: String?)
         case folder
+        /// A color stored as "#RRGGBBAA".
+        case color
         case shortcut
         /// A comma-separated list of pixel sizes, e.g. "640x480, 1280x720".
         case sizeList
@@ -92,6 +95,9 @@ public struct SettingDefinition: Sendable, Identifiable {
         case (.slider(let range, _), .double(let v)):
             return .double(v.isNaN ? defaultValue.doubleValue : min(max(v, range.lowerBound), range.upperBound))
         case (.choice(let choices), .string(let v)): return choices.contains { $0.value == v } ? value : defaultValue
+        case (.color, .string(let v)):
+            // Normalize to "#RRGGBBAA"; anything that is not a color falls back to the default.
+            return RGBAColor(hex: v).map { .string($0.hex) } ?? defaultValue
         default:
             // Same type as the default is required.
             return value.sameKind(as: defaultValue) ? value : defaultValue

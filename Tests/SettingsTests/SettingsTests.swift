@@ -14,6 +14,7 @@ private func registry() -> SettingsRegistry {
                           control: .choice([.init("png", "PNG"), .init("jpeg", "JPEG")])),
         SettingDefinition(id: "t.name", section: .output, title: "Name", defaultValue: .string("x"), control: .text(placeholder: nil)),
         SettingDefinition(id: "t.hotkey", section: .hotkeys, title: "Hotkey", defaultValue: .shortcut(.digit(1, [.control, .shift])), control: .shortcut),
+        SettingDefinition(id: "t.color", section: .editor, title: "Color", defaultValue: .string("#FFFFFFFF"), control: .color),
         SettingDefinition(id: "t.state", section: .advanced, title: "State", defaultValue: .bool(false), control: .hidden),
     ])
 }
@@ -27,7 +28,7 @@ private func freshDefaults() -> (UserDefaults, () -> Void) {
 struct RegistryTests {
     @Test func sectionsListOnlyVisibleSettingsInTabOrder() {
         // "advanced" only has a hidden setting, so it gets no tab.
-        #expect(registry().sections.map(\.id) == ["capture", "hotkeys", "output"])
+        #expect(registry().sections.map(\.id) == ["capture", "hotkeys", "editor", "output"])
         #expect(registry().definitions(in: .output).map(\.id) == ["t.mode", "t.name"])
     }
 
@@ -47,6 +48,12 @@ struct ValidationTests {
         #expect(r.definition(for: "t.level")!.validated(.double(.nan)) == .double(0.5))
         #expect(r.definition(for: "t.mode")!.validated(.string("webp")) == .string("png"))
         #expect(r.definition(for: "t.mode")!.validated(.string("jpeg")) == .string("jpeg"))
+    }
+
+    @Test func colorsAreNormalizedAndBadOnesFallBack() {
+        let def = r.definition(for: "t.color")!
+        #expect(def.validated(.string("#ff8000")) == .string("#FF8000FF"))
+        #expect(def.validated(.string("not a color")) == .string("#FFFFFFFF"))
     }
 
     @Test func wrongTypeFallsBackToDefault() {

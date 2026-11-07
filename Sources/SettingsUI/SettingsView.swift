@@ -133,6 +133,11 @@ private struct SettingRow: View {
                 }
             }
 
+        case .color:
+            ColorPicker(definition.title, selection: Binding(
+                get: { Self.swiftUIColor(from: store.string(id)) },
+                set: { store.set(Self.hex(from: $0), for: id) }), supportsOpacity: true)
+
         case .shortcut:
             LabeledContent(definition.title) {
                 HStack {
@@ -147,6 +152,16 @@ private struct SettingRow: View {
         case .hidden:
             EmptyView()
         }
+    }
+
+    private static func swiftUIColor(from hex: String) -> Color {
+        let c = RGBAColor(hex: hex) ?? .white
+        return Color(.sRGB, red: c.red, green: c.green, blue: c.blue, opacity: c.alpha)
+    }
+
+    private static func hex(from color: Color) -> String {
+        let ns = NSColor(color).usingColorSpace(.sRGB) ?? .white
+        return RGBAColor(red: ns.redComponent, green: ns.greenComponent, blue: ns.blueComponent, alpha: ns.alphaComponent).hex
     }
 
     private func abbreviated(_ path: String) -> String { (path as NSString).abbreviatingWithTildeInPath }

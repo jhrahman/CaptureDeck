@@ -38,6 +38,8 @@ enum SettingID {
     static let editorSaveOverwritesOpened = "editor.saveOverwritesOpenedFile"
     static let editorDefaultTool = "editor.defaultTool"
     static let editorShowSelectionSize = "editor.showSelectionSize"
+    static let editorResizeKeepProportions = "editor.resizeKeepProportions"
+    static let editorBackgroundFill = "editor.backgroundFill"
 
     static let appearance = "appearance.preference"
 
@@ -141,6 +143,14 @@ enum AppSettings {
                   control: .choice(EditorToolRegistry.descriptors.map { .init($0.id, $0.title) }), order: 0),
             .init(id: SettingID.editorShowSelectionSize, section: .editor, group: "Tools", title: "Show the size of the selection",
                   defaultValue: .bool(true), control: .toggle, order: 1),
+        ]
+
+        defs += [
+            .init(id: SettingID.editorResizeKeepProportions, section: .editor, group: "Image size", title: "Keep proportions when resizing",
+                  help: "The starting state of the checkbox in the Resize dialog.", defaultValue: .bool(true), control: .toggle, order: 0),
+            .init(id: SettingID.editorBackgroundFill, section: .editor, group: "Image size", title: "Fill color for new areas",
+                  help: "Used by Canvas Size and Rotate by Angle for the space they add. Set the opacity to 0 for transparent.",
+                  defaultValue: .string("#FFFFFFFF"), control: .color, order: 1),
         ]
 
         // Appearance

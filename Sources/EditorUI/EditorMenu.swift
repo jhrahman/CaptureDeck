@@ -49,9 +49,20 @@ enum EditorMenu {
         image.addItem(.separator())
         add("Rotate Right", to: image, action: Selector(("rotateRight:")), key: "r")
         add("Rotate Left", to: image, action: Selector(("rotateLeft:")), key: "l")
+        add("Rotate by Angle…", to: image, action: Selector(("rotateImageByAngle:")))
         image.addItem(.separator())
         add("Flip Horizontal", to: image, action: Selector(("flipHorizontal:")))
         add("Flip Vertical", to: image, action: Selector(("flipVertical:")))
+        image.addItem(.separator())
+        add("Resize Image…", to: image, action: Selector(("resizeImage:")), key: "r", modifiers: [.command, .shift])
+        add("Canvas Size…", to: image, action: Selector(("canvasSize:")), key: "c", modifiers: [.command, .shift])
+        // Quick resizes (Ctrl+Cmd+1 to 4).
+        for (index, percent) in [25, 50, 75, 200].enumerated() {
+            let item = NSMenuItem(title: "Resize to \(percent)%", action: Selector(("resizeByPercent:")), keyEquivalent: String(index + 1))
+            item.keyEquivalentModifierMask = [.control, .command]
+            item.tag = percent
+            image.addItem(item)
+        }
 
         // Tools: generated from the tool registry, with each tool's single-key shortcut shown.
         let tools = submenu("Tools")

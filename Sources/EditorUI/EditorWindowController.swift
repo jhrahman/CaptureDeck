@@ -3,6 +3,7 @@ import Combine
 import CoreModels
 import EditorEngine
 import Platform
+import SwiftUI
 import UniformTypeIdentifiers
 
 /// One editor window (one tab): toolbar, canvas, and the actions behind the menus.
@@ -69,6 +70,58 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     @objc func copyImage(_ sender: Any?) {
         let image = editorDocument.selectionImage() ?? editorDocument.flattenedImage()
         do { try ClipboardManager().copy(image) } catch { NSSound.beep() }
+    }
+
+    // MARK: Resize, canvas size, rotate by angle (dialogs)
+
+    private var backgroundFill: RGBAColor { RGBAColor(hex: store?.settings.string("editor.backgroundFill") ?? "") ?? .white }
+
+    private func present<Content: View>(_ makeContent: (@escaping () -> Void) -> Content) {
+        guard let window else { return }
+        let sheet = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: false)
+        let dismiss = { [weak window, weak sheet] in
+            if let window, let sheet { window.endSheet(sheet) }
+        }
+        sheet.contentViewController = NSHostingController(rootView: makeContent(dismiss))
+        window.beginSheet(sheet)
+    }
+
+    @objc func resizeImage(_ sender: Any?) {
+        let size = editorDocument.workingImage.pixelSize
+        let keep = store?.settings.bool("editor.resizeKeepProportions") ?? true
+        present { dismiss in
+            ResizeSheet(original: (Int(size.width), Int(size.height)), keepProportions: keep,
+                        onApply: { [weak self] w, h in dismiss(); self?.editorDocument.apply(.resize(width: w, height: h)) },
+                        onCancel: dismiss)
+        }
+    }
+
+    /// Quick resize from the menu; the percentage is the menu item's tag.
+    @objc func resizeByPercent(_ sender: NSMenuItem) {
+        let size = editorDocument.workingImage.pixelSize
+        let target = ResizeMath.size(from: (Int(size.width), Int(size.height)), percent: Double(sender.tag))
+        guard ResizeMath.isValid(width: target.width, height: target.height) else { NSSound.beep(); return }
+        editorDocument.apply(.resize(width: target.width, height: target.height))
+    }
+
+    @objc func canvasSize(_ sender: Any?) {
+        let size = editorDocument.workingImage.pixelSize
+        let fill = backgroundFill
+        present { dismiss in
+            CanvasSizeSheet(original: (Int(size.width), Int(size.height)), fill: fill,
+                            onApply: { [weak self] w, h, anchor, color in
+                                dismiss(); self?.editorDocument.apply(.canvasSize(width: w, height: h, anchor: anchor, fill: color))
+                            }, onCancel: dismiss)
+        }
+    }
+
+    @objc func rotateImageByAngle(_ sender: Any?) {
+        let fill = backgroundFill
+        present { dismiss in
+            RotateSheet(fill: fill,
+                        onApply: { [weak self] degrees, color in dismiss(); self?.editorDocument.apply(.rotateByAngle(degrees: degrees, fill: color)) },
+                        onCancel: dismiss)
+        }
     }
 
     @objc func selectEverything(_ sender: Any?) { editorDocument.selectAll() }
