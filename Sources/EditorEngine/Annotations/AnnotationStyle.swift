@@ -41,13 +41,16 @@ public struct AnnotationStyle: Equatable, Sendable, Codable {
     public var alignment: TextAlignment
     /// How strong a pixel effect is: blur radius or pixel block size (px), or magnifier zoom.
     public var strength: Double
+    /// Color of the text inside bubbles. (Plain text boxes use `strokeColor` for their text.)
+    public var textColor: RGBAColor
 
+    public static let defaultTextColor = RGBAColor(hex: "#1D1D1FFF") ?? .black
     public static let defaultFontName = "Helvetica Neue"
 
     public init(strokeColor: RGBAColor, fillColor: RGBAColor = .clear, lineWidth: Double = 4, opacity: Double = 1,
                 dash: DashStyle = .solid, cornerRadius: Double = 0,
                 fontName: String = AnnotationStyle.defaultFontName, fontSize: Double = 28, bold: Bool = false, italic: Bool = false,
-                alignment: TextAlignment = .left, strength: Double = 12) {
+                alignment: TextAlignment = .left, strength: Double = 12, textColor: RGBAColor = AnnotationStyle.defaultTextColor) {
         self.strokeColor = strokeColor
         self.fillColor = fillColor
         self.lineWidth = Self.clampWidth(lineWidth)
@@ -60,6 +63,7 @@ public struct AnnotationStyle: Equatable, Sendable, Codable {
         self.italic = italic
         self.alignment = alignment
         self.strength = strength.isNaN ? 12 : min(max(strength, 1), 200)
+        self.textColor = textColor
     }
 
     public static let defaultStroke = RGBAColor(hex: "#FF3B30FF") ?? .black
@@ -68,7 +72,7 @@ public struct AnnotationStyle: Equatable, Sendable, Codable {
     public static func clampWidth(_ w: Double) -> Double { w.isNaN ? 4 : min(max(w, 0), 200) }
 
     // Missing fields (from older or newer files) fall back to the defaults instead of failing to load.
-    private enum CodingKeys: String, CodingKey { case strokeColor, fillColor, lineWidth, opacity, dash, cornerRadius, fontName, fontSize, bold, italic, alignment, strength }
+    private enum CodingKeys: String, CodingKey { case strokeColor, fillColor, lineWidth, opacity, dash, cornerRadius, fontName, fontSize, bold, italic, alignment, strength, textColor }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -84,6 +88,7 @@ public struct AnnotationStyle: Equatable, Sendable, Codable {
             bold: try c.decodeIfPresent(Bool.self, forKey: .bold) ?? false,
             italic: try c.decodeIfPresent(Bool.self, forKey: .italic) ?? false,
             alignment: try c.decodeIfPresent(TextAlignment.self, forKey: .alignment) ?? .left,
-            strength: try c.decodeIfPresent(Double.self, forKey: .strength) ?? 12)
+            strength: try c.decodeIfPresent(Double.self, forKey: .strength) ?? 12,
+            textColor: try c.decodeIfPresent(RGBAColor.self, forKey: .textColor) ?? Self.defaultTextColor)
     }
 }

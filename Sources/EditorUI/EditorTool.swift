@@ -19,10 +19,17 @@ struct ToolContext {
     func imagePixels(forScreenPoints points: CGFloat) -> CGFloat { points / max(zoom, 0.0001) * (NSScreen.main?.backingScaleFactor ?? 2) }
 }
 
+/// What the inline text editor is editing.
+enum TextEditKind {
+    case plain
+    /// A speech bubble. `tip` is where its tail points; nil lets the editor choose a default below the box.
+    case callout(oval: Bool, tip: CGPoint?)
+}
+
 @MainActor
 protocol ToolHost: AnyObject {
     /// Opens the inline text editor over `rect` (image pixels). `annotationID` is set when editing existing text.
-    func editText(annotationID: UUID?, rect: CGRect, text: String, style: AnnotationStyle)
+    func editText(annotationID: UUID?, rect: CGRect, text: String, style: AnnotationStyle, kind: TextEditKind)
 }
 
 /// A tool the user can pick. Tools are added by registering them in `EditorToolRegistry`; the toolbar, the Tools menu,
@@ -56,6 +63,8 @@ public enum StyleProperty: String, Sendable, CaseIterable {
     case strength
     /// Magnifier zoom (stored as the style's strength).
     case zoom
+    /// Text color inside bubbles.
+    case textColor
 }
 
 public struct EditorToolDescriptor: Sendable, Identifiable, Equatable {
@@ -129,6 +138,19 @@ public enum EditorToolRegistry {
         styleProperties: [.stroke, .fill, .width, .fontName, .fontSize, .bold, .italic, .alignment, .opacity],
         defaultStyle: AnnotationStyle(strokeColor: AnnotationStyle.defaultStroke, lineWidth: 0, fontSize: 32),
         iconColor: "#0A84FF", propertyTitles: [.stroke: "Text", .fill: "Background", .width: "Border"])
+    private static let bubbleProperties: [StyleProperty] = [.fill, .stroke, .width, .textColor, .fontName, .fontSize, .bold, .italic, .alignment]
+    private static let bubbleStyle = AnnotationStyle(
+        strokeColor: AnnotationStyle.defaultStroke, fillColor: RGBAColor(hex: "#FFF7B2FF") ?? .white, lineWidth: 3,
+        cornerRadius: 20, fontSize: 28)
+    private static let bubbleTitles: [StyleProperty: String] = [.fill: "Bubble", .stroke: "Border", .width: "Border width", .textColor: "Text"]
+    public static let callout = EditorToolDescriptor(
+        id: "callout", title: "Speech Bubble", symbol: "text.bubble", key: "c", kind: .draw,
+        styleProperties: bubbleProperties + [.cornerRadius, .opacity], defaultStyle: bubbleStyle,
+        iconColor: "#E879F9", propertyTitles: bubbleTitles.merging([.cornerRadius: "Corners"]) { a, _ in a })
+    public static let ovalCallout = EditorToolDescriptor(
+        id: "ovalCallout", title: "Oval Bubble", symbol: "bubble.left", key: "q", kind: .draw,
+        styleProperties: bubbleProperties + [.opacity], defaultStyle: bubbleStyle,
+        iconColor: "#818CF8", propertyTitles: bubbleTitles)
     public static let step = EditorToolDescriptor(
         id: "step", title: "Step Number", symbol: "1.circle", key: "n", kind: .draw,
         styleProperties: [.fill, .stroke, .fontSize, .opacity],
@@ -155,14 +177,14 @@ public enum EditorToolRegistry {
         [rectangleSelect, freehandSelect],
         [rectangle, roundedRectangle, ellipse],
         [line, arrow, doubleArrow, pencil],
-        [text, step, stepLetter],
+        [text, callout, ovalCallout, step, stepLetter],
         [highlighter, blur, pixelate, spotlight, magnifier],
     ]
 
     /// Which tool draws each kind of shape, so selecting a shape can show that tool's properties and names.
     static let toolForShapeType: [String: EditorToolDescriptor] = [
         "rectangle": rectangle, "ellipse": ellipse, "line": line, "pencil": pencil, "highlighter": highlighter,
-        "text": text, "step": step, "blur": blur, "pixelate": pixelate, "spotlight": spotlight, "magnifier": magnifier,
+        "text": text, "callout": callout, "step": step, "blur": blur, "pixelate": pixelate, "spotlight": spotlight, "magnifier": magnifier,
     ]
 
     /// The properties that make sense for the selected shapes (the union, in the usual order) and their names.
@@ -205,6 +227,8 @@ public enum EditorToolRegistry {
             ShapeDragTool(doubleArrow) { a, b, snap in LineShape(start: a, end: ShapeDragTool.end(a, b, snap: snap), startHead: .filled, endHead: .filled) },
             PencilTool(),
             TextTool(),
+            CalloutTool(callout, oval: false),
+            CalloutTool(ovalCallout, oval: true),
             StepTool(step, letters: false),
             StepTool(stepLetter, letters: true),
             ShapeDragTool(highlighter) { a, b, square in HighlighterShape(rect: ShapeDragTool.rect(a, b, square: square)) },
@@ -239,6 +263,7 @@ public enum ToolStyleSetting {
             case .italic: style.italic = settings.bool(key)
             case .alignment: style.alignment = TextAlignment(rawValue: settings.string(key)) ?? style.alignment
             case .strength, .zoom: style.strength = Double(settings.int(key))
+            case .textColor: style.textColor = RGBAColor(hex: settings.string(key)) ?? style.textColor
             }
         }
         return style
@@ -262,6 +287,7 @@ public enum ToolStyleSetting {
             case .italic: settings.set(style.italic, for: key)
             case .alignment: settings.set(style.alignment.rawValue, for: key)
             case .strength, .zoom: settings.set(Int(style.strength.rounded()), for: key)
+            case .textColor: settings.set(style.textColor.hex, for: key)
             }
         }
     }

@@ -118,6 +118,17 @@ final class CanvasView: NSView {
             context.setLineDash(phase: 0, lengths: [4 * unit, 3 * unit])
             context.stroke(box)
         }
+        // A shape's own handles (the tip of a speech bubble's tail) show when it is the only thing selected.
+        if chosen.count == 1 {
+            for point in chosen[0].shape.extraHandles {
+                let dot = CGRect(x: point.x - 5 * unit, y: point.y - 5 * unit, width: 10 * unit, height: 10 * unit)
+                context.setLineDash(phase: 0, lengths: [])
+                context.setFillColor(CGColor(red: 1, green: 0.62, blue: 0.04, alpha: 1))
+                context.fillEllipse(in: dot)
+                context.setStrokeColor(CGColor(gray: 1, alpha: 1))
+                context.strokeEllipse(in: dot)
+            }
+        }
         context.setLineDash(phase: 0, lengths: [])
         let handle = 7 * unit
         let xs: [CGFloat] = [union.minX, union.midX, union.maxX]

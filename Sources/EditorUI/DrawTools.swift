@@ -125,6 +125,7 @@ final class PointerTool: EditorTool {
 
     private enum State {
         case idle
+        case tail(original: Annotation, index: Int)
         case moving(from: CGPoint, originals: [Annotation])
         case resizing(handle: SelectionHandle, startBounds: CGRect, originals: [Annotation])
     }
@@ -136,7 +137,19 @@ final class PointerTool: EditorTool {
         return RectSelectionEditing.handleHit(rect: bounds, point: point, tolerance: context.imagePixels(forScreenPoints: 7))
     }
 
+    /// A shape's own handle (a bubble's tail tip) under the pointer: only when exactly one object is selected.
+    private func extraHandle(at point: CGPoint, context: ToolContext) -> (annotation: Annotation, index: Int)? {
+        let selected = context.document.selectedAnnotations
+        guard selected.count == 1, let annotation = selected.first else { return nil }
+        let reach = context.imagePixels(forScreenPoints: 9)
+        for (index, handle) in annotation.shape.extraHandles.enumerated() where hypot(point.x - handle.x, point.y - handle.y) <= reach {
+            return (annotation, index)
+        }
+        return nil
+    }
+
     func cursor(at point: CGPoint, context: ToolContext) -> NSCursor {
+        if extraHandle(at: point, context: context) != nil { return .crosshair }
         if let handle = handle(at: point, context: context) {
             switch handle {
             case .left, .right: return .resizeLeftRight
@@ -149,6 +162,10 @@ final class PointerTool: EditorTool {
 
     func mouseDown(at point: CGPoint, context: ToolContext) {
         let document = context.document
+        if let hit = extraHandle(at: point, context: context) {
+            state = .tail(original: hit.annotation, index: hit.index)
+            return
+        }
         if let handle = handle(at: point, context: context), let bounds = document.selectedAnnotationBounds {
             state = .resizing(handle: handle, startBounds: bounds, originals: document.selectedAnnotations)
             return
@@ -158,11 +175,20 @@ final class PointerTool: EditorTool {
             state = .idle
             return
         }
-        if context.clickCount >= 2, let text = hit.shape as? TextShape {        // double-click text to edit it
-            document.selectAnnotations([hit.id])
-            context.host?.editText(annotationID: hit.id, rect: text.rect, text: text.text, style: hit.style)
-            state = .idle
-            return
+        if context.clickCount >= 2 {                                            // double-click text or a bubble to edit it
+            if let text = hit.shape as? TextShape {
+                document.selectAnnotations([hit.id])
+                context.host?.editText(annotationID: hit.id, rect: text.rect, text: text.text, style: hit.style, kind: .plain)
+                state = .idle
+                return
+            }
+            if let bubble = hit.shape as? CalloutShape {
+                document.selectAnnotations([hit.id])
+                context.host?.editText(annotationID: hit.id, rect: bubble.rect, text: bubble.text, style: hit.style,
+                                       kind: .callout(oval: bubble.oval, tip: bubble.tip))
+                state = .idle
+                return
+            }
         }
         if NSEvent.modifierFlags.contains(.shift) {                       // Shift-click adds to / removes from the selection
             var ids = document.selectedAnnotationIDs
@@ -178,6 +204,8 @@ final class PointerTool: EditorTool {
         let document = context.document
         switch state {
         case .idle: break
+        case .tail(let original, let index):
+            document.previewAnnotations([Annotation(id: original.id, shape: original.shape.movingHandle(index, to: point), style: original.style)])
         case .moving(let from, let originals):
             let move = CGAffineTransform(translationX: (point.x - from.x).rounded(), y: (point.y - from.y).rounded())
             document.previewAnnotations(originals.map { $0.applying(move) })
@@ -193,6 +221,7 @@ final class PointerTool: EditorTool {
         defer { state = .idle }
         switch state {
         case .idle: break
+        case .tail(let original, _): context.document.commitAnnotationEdit(from: [original], name: "Move Tail")
         case .moving(_, let originals): context.document.commitAnnotationEdit(from: originals, name: "Move")
         case .resizing(_, _, let originals): context.document.commitAnnotationEdit(from: originals, name: "Resize")
         }
@@ -304,7 +333,7 @@ final class TextTool: EditorTool {
         if let hit = context.document.annotation(at: point, tolerance: context.imagePixels(forScreenPoints: 4)),
            let text = hit.shape as? TextShape {
             context.document.selectAnnotations([hit.id])
-            context.host?.editText(annotationID: hit.id, rect: text.rect, text: text.text, style: hit.style)
+            context.host?.editText(annotationID: hit.id, rect: text.rect, text: text.text, style: hit.style, kind: .plain)
             start = nil
             return
         }
@@ -327,7 +356,71 @@ final class TextTool: EditorTool {
         } else {
             box = CGRect(x: start.x, y: start.y, width: Self.defaultWidth, height: 1)     // a click: default-width box
         }
-        context.host?.editText(annotationID: nil, rect: box, text: "", style: style)
+        context.host?.editText(annotationID: nil, rect: box, text: "", style: style, kind: .plain)
+    }
+
+    func keyDown(_ event: NSEvent, context: ToolContext) -> Bool {
+        guard event.keyCode == 53 else { return false }
+        if start != nil { start = nil } else { context.document.clearAnnotationSelection() }
+        return true
+    }
+
+    func deactivate() { start = nil }
+}
+
+// MARK: - Speech bubbles
+
+@MainActor
+final class CalloutTool: EditorTool {
+    let descriptor: EditorToolDescriptor
+    private let oval: Bool
+    private var start: CGPoint?
+    private var current = CGPoint.zero
+    private var style = AnnotationStyle.default
+
+    static let defaultWidth: CGFloat = 280
+
+    init(_ descriptor: EditorToolDescriptor, oval: Bool) {
+        self.descriptor = descriptor
+        self.oval = oval
+    }
+
+    var previewAnnotations: [Annotation] {
+        guard let start, hypot(current.x - start.x, current.y - start.y) > 4 else { return [] }
+        let outline = AnnotationStyle(strokeColor: style.strokeColor, lineWidth: 2, dash: .dashed)
+        return [Annotation(shape: RectangleShape(rect: ShapeDragTool.rect(start, current, square: false)), style: outline)]
+    }
+
+    func cursor(at point: CGPoint, context: ToolContext) -> NSCursor { .iBeam }
+
+    func mouseDown(at point: CGPoint, context: ToolContext) {
+        style = context.style
+        // Clicking an existing bubble edits its text instead of starting a new one.
+        if let hit = context.document.annotation(at: point, tolerance: context.imagePixels(forScreenPoints: 4)),
+           let bubble = hit.shape as? CalloutShape {
+            context.document.selectAnnotations([hit.id])
+            context.host?.editText(annotationID: hit.id, rect: bubble.rect, text: bubble.text, style: hit.style,
+                                   kind: .callout(oval: bubble.oval, tip: bubble.tip))
+            start = nil
+            return
+        }
+        start = point
+        current = point
+    }
+
+    func mouseDragged(to point: CGPoint, context: ToolContext) {
+        guard start != nil else { return }
+        current = point
+    }
+
+    func mouseUp(at point: CGPoint, context: ToolContext) {
+        defer { start = nil }
+        guard let start else { return }
+        let dragged = ShapeDragTool.rect(start, point, square: false)
+        let box = dragged.width >= TextTool.minimumWidth
+            ? CGRect(x: dragged.minX, y: dragged.minY, width: dragged.width, height: max(dragged.height, 1))
+            : CGRect(x: start.x, y: start.y, width: Self.defaultWidth, height: 1)
+        context.host?.editText(annotationID: nil, rect: box, text: "", style: style, kind: .callout(oval: oval, tip: nil))
     }
 
     func keyDown(_ event: NSEvent, context: ToolContext) -> Bool {

@@ -170,6 +170,7 @@ enum AppSettings {
                 case .fontName:
                     defs.append(def("Font", .string(style.fontName), .choice(TextFonts.common.map { .init($0, $0) })))
                 case .fontSize: defs.append(def("Size", .int(Int(style.fontSize)), .stepper(4...400, unit: "px")))
+                case .textColor: defs.append(def(tool.propertyTitles[.textColor].map { "\($0) color" } ?? "Text color", .string(style.textColor.hex), .color))
                 case .zoom: defs.append(def("Zoom", .int(Int(style.strength)), .stepper(2...8, unit: "×")))
                 case .strength: defs.append(def(tool.propertyTitles[.strength] ?? "Strength", .int(Int(style.strength)), .stepper(1...60, unit: "px")))
                 case .bold: defs.append(def("Bold", .bool(style.bold), .toggle))

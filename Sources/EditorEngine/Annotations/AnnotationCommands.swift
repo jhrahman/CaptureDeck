@@ -22,6 +22,7 @@ final class AddAnnotationsCommand: EditorCommand {
         case "magnifier": "Magnifier"
         case "blur": "Blur"
         case "pixelate": "Pixelate"
+        case "callout": "Speech Bubble"
         case "text": "Text"
         case "step": "Step"
         default: "Annotation"

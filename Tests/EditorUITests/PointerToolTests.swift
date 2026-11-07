@@ -76,3 +76,60 @@ struct PointerToolTests {
         #expect(doc.undoNames == ["Add Rectangle"])                              // a plain click is not an edit
     }
 }
+
+@MainActor
+struct BubbleToolTests {
+    private func makeDocument() -> (EditorDocument, Annotation) {
+        let ctx = CGContext(data: nil, width: 600, height: 400, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let doc = EditorDocument(original: CapturedImage(cgImage: ctx.makeImage()!, scale: 2), title: "t")
+        let bubble = Annotation(shape: CalloutShape(rect: CGRect(x: 100, y: 50, width: 200, height: 80), text: "Look here", tip: CGPoint(x: 150, y: 220)),
+                                style: EditorToolRegistry.callout.defaultStyle)
+        doc.addAnnotation(bubble)
+        return (doc, bubble)
+    }
+
+    private func drag(_ doc: EditorDocument, from a: CGPoint, to b: CGPoint) {
+        let tool = PointerTool()
+        let ctx = ToolContext(document: doc, zoom: 1, style: .default)
+        tool.mouseDown(at: a, context: ctx)
+        for i in 1...6 { tool.mouseDragged(to: CGPoint(x: a.x + (b.x - a.x) * CGFloat(i) / 6, y: a.y + (b.y - a.y) * CGFloat(i) / 6), context: ctx) }
+        tool.mouseUp(at: b, context: ctx)
+    }
+
+    @Test func draggingTheTailTipAimsTheTailWithoutMovingTheBubble() throws {
+        let (doc, _) = makeDocument()
+        drag(doc, from: CGPoint(x: 150, y: 220), to: CGPoint(x: 400, y: 300))
+        let bubble = try #require(doc.annotations[0].shape as? CalloutShape)
+        #expect(bubble.tip == CGPoint(x: 400, y: 300) && bubble.rect == CGRect(x: 100, y: 50, width: 200, height: 80))
+        #expect(doc.undoNames.last == "Move Tail")
+        doc.undo()
+        #expect((doc.annotations[0].shape as? CalloutShape)?.tip == CGPoint(x: 150, y: 220))
+    }
+
+    @Test func draggingTheBodyStillMovesTheWholeBubble() throws {
+        let (doc, _) = makeDocument()
+        drag(doc, from: CGPoint(x: 200, y: 90), to: CGPoint(x: 240, y: 110))          // inside the body, not on a handle
+        let bubble = try #require(doc.annotations[0].shape as? CalloutShape)
+        #expect(bubble.rect.origin == CGPoint(x: 140, y: 70) && bubble.tip == CGPoint(x: 190, y: 240))
+    }
+
+    @Test func bubbleToolsAreRegisteredWithTheRightProperties() {
+        let callout = EditorToolRegistry.callout, oval = EditorToolRegistry.ovalCallout
+        #expect(callout.styleProperties.contains(.textColor) && callout.styleProperties.contains(.cornerRadius))
+        #expect(oval.styleProperties.contains(.textColor) && !oval.styleProperties.contains(.cornerRadius))
+        #expect(callout.propertyTitles[.fill] == "Bubble" && callout.propertyTitles[.textColor] == "Text")
+        #expect(EditorToolRegistry.descriptors.contains(callout) && EditorToolRegistry.descriptors.contains(oval))
+    }
+
+    @Test func aSelectedBubbleOffersBubbleProperties() {
+        let result = EditorToolRegistry.properties(forShapeTypes: ["callout"])
+        #expect(result.properties.contains(.textColor) && result.properties.contains(.fontSize) && result.properties.contains(.fill))
+        #expect(result.titles[.fill] == "Bubble")
+    }
+
+    @Test func newBubblesUseTheToolsDefaultLookWithDarkTextOnLightFill() {
+        let style = EditorToolRegistry.callout.defaultStyle
+        #expect(style.fillColor.alpha == 1 && style.textColor == AnnotationStyle.defaultTextColor && style.lineWidth > 0)
+    }
+}

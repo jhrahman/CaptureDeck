@@ -49,16 +49,19 @@ struct ToolOptionsView: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            Text(model.title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
-
-            if let hint = model.hint, model.properties.isEmpty {
-                Text(hint).font(.caption).foregroundStyle(.secondary)
+            // The controls scroll sideways in a narrow window; the object buttons stay put on the right.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 14) {
+                    Text(model.title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                    if let hint = model.hint, model.properties.isEmpty {
+                        Text(hint).font(.caption).foregroundStyle(.secondary)
+                    }
+                    ForEach(model.properties, id: \.self) { property in
+                        control(for: property)
+                    }
+                }
+                .frame(maxHeight: .infinity)
             }
-            ForEach(model.properties, id: \.self) { property in
-                control(for: property)
-            }
-
-            Spacer(minLength: 8)
 
             if model.selectionCount > 0 {
                 HStack(spacing: 2) {
@@ -148,6 +151,12 @@ struct ToolOptionsView: View {
                 Slider(value: Binding(get: { model.style.strength }, set: { v in model.edit { $0.strength = v.rounded() } }), in: 1...60)
                     .frame(width: 120)
                 Text("\(Int(model.style.strength))").monospacedDigit().frame(width: 24, alignment: .trailing).font(.caption)
+            }
+        case .textColor:
+            labelled(model.title(.textColor, default: "Text")) {
+                ColorPicker("Text color", selection: Binding(get: { swiftUIColor(model.style.textColor) },
+                                                             set: { c in model.edit { $0.textColor = rgba(c) } }), supportsOpacity: false)
+                    .labelsHidden()
             }
         case .zoom:
             labelled(model.title(.zoom, default: "Zoom")) {

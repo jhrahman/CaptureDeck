@@ -20,7 +20,7 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
     var onToolChanged: ((EditorToolDescriptor) -> Void)?
     private let optionsModel = ToolOptionsModel()
     private let ribbonModel = ToolRibbonModel()
-    private var textEditor: (view: NSTextView, annotationID: UUID?, rect: CGRect, style: AnnotationStyle)?
+    private var textEditor: (view: NSTextView, annotationID: UUID?, rect: CGRect, style: AnnotationStyle, kind: TextEditKind)?
     private var optionsBar: NSHostingView<ToolOptionsView>?
     private var optionsHeight: NSLayoutConstraint?
     /// A burst of style edits (dragging a slider) becomes one undo step, committed shortly after the last edit.
@@ -169,23 +169,30 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
 
     // MARK: Inline text editing
 
-    func editText(annotationID: UUID?, rect: CGRect, text: String, style: AnnotationStyle) {
+    func editText(annotationID: UUID?, rect: CGRect, text: String, style: AnnotationStyle, kind: TextEditKind) {
         finishTextEditing()
-        let pad = TextRenderer.padding
+        var padding = NSSize(width: TextRenderer.padding, height: TextRenderer.padding)
+        var textColor = style.strokeColor
+        if case .callout(let oval, _) = kind {                // bubbles: their own text color and roomier padding
+            let pad = CalloutShape.padding(oval: oval, in: rect)
+            padding = NSSize(width: pad.width, height: pad.height)
+            textColor = style.textColor
+        }
+        let pad = padding.height
         var font = NSFont(name: style.fontName, size: CGFloat(style.fontSize)) ?? .systemFont(ofSize: CGFloat(style.fontSize))
         if style.bold { font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask) }
         if style.italic { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
 
         let field = NSTextView(frame: NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: max(rect.height, font.boundingRectForFont.height + 2 * pad)))
         field.font = font
-        field.textColor = NSColor(srgbRed: style.strokeColor.red, green: style.strokeColor.green, blue: style.strokeColor.blue, alpha: 1)
+        field.textColor = NSColor(srgbRed: textColor.red, green: textColor.green, blue: textColor.blue, alpha: 1)
         field.insertionPointColor = field.textColor ?? .black
         field.alignment = style.alignment == .center ? .center : (style.alignment == .right ? .right : .left)
         field.drawsBackground = true
         field.backgroundColor = style.fillColor.alpha > 0
             ? NSColor(srgbRed: style.fillColor.red, green: style.fillColor.green, blue: style.fillColor.blue, alpha: style.fillColor.alpha)
             : NSColor(white: 0.5, alpha: 0.15)                       // a faint tint so an empty box is visible
-        field.textContainerInset = NSSize(width: pad, height: pad)
+        field.textContainerInset = padding
         field.textContainer?.lineFragmentPadding = 0
         field.textContainer?.widthTracksTextView = true
         field.isRichText = false
@@ -199,7 +206,7 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
         field.layer?.borderColor = NSColor.systemBlue.cgColor
         field.layer?.borderWidth = 1 / max(scrollView.magnification, 0.01)
 
-        textEditor = (field, annotationID, rect, style)
+        textEditor = (field, annotationID, rect, style, kind)
         canvas.hiddenAnnotationIDs = annotationID.map { [$0] } ?? []
         canvas.addSubview(field)
         view.window?.makeFirstResponder(field)
@@ -219,13 +226,26 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
         if let id = editor.annotationID, let existing = document.annotation(withID: id) {
             if isEmpty {
                 document.removeAnnotations(ids: [id])
+            } else if let bubble = existing.shape as? CalloutShape {
+                // Same bubble, new text: the body grows to fit it and the tail stays where it was aimed.
+                let box = CalloutShape.fittingRect(origin: editor.rect.origin, width: editor.rect.width, text: content, style: existing.style, oval: bubble.oval)
+                let updated = CalloutShape(rect: box, text: content, tip: bubble.tip, oval: bubble.oval)
+                document.updateAnnotations([Annotation(id: id, shape: updated, style: existing.style)], name: "Edit Text")
             } else {
                 let box = TextShape.fittingRect(origin: editor.rect.origin, width: editor.rect.width, text: content, style: existing.style)
                 document.updateAnnotations([Annotation(id: id, shape: TextShape(rect: box, text: content), style: existing.style)], name: "Edit Text")
             }
         } else if !isEmpty {
-            let box = TextShape.fittingRect(origin: editor.rect.origin, width: editor.rect.width, text: content, style: editor.style)
-            document.addAnnotation(Annotation(shape: TextShape(rect: box, text: content), style: editor.style))
+            switch editor.kind {
+            case .plain:
+                let box = TextShape.fittingRect(origin: editor.rect.origin, width: editor.rect.width, text: content, style: editor.style)
+                document.addAnnotation(Annotation(shape: TextShape(rect: box, text: content), style: editor.style))
+            case .callout(let oval, let tip):
+                let box = CalloutShape.fittingRect(origin: editor.rect.origin, width: editor.rect.width, text: content, style: editor.style, oval: oval)
+                // Unless aimed already, point the tail down and to the left, beneath the bubble.
+                let aim = tip ?? CGPoint(x: box.minX + box.width * 0.25, y: box.maxY + max(40, box.height * 0.7))
+                document.addAnnotation(Annotation(shape: CalloutShape(rect: box, text: content, tip: aim, oval: oval), style: editor.style))
+            }
         }
     }
 
@@ -309,6 +329,7 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
             if !offered.contains(.italic) { look.italic = changed[index].style.italic }
             if !offered.contains(.alignment) { look.alignment = changed[index].style.alignment }
             if !offered.contains(.strength) && !offered.contains(.zoom) { look.strength = changed[index].style.strength }
+            if !offered.contains(.textColor) { look.textColor = changed[index].style.textColor }
             changed[index].style = look
         }
         document.previewAnnotations(changed)

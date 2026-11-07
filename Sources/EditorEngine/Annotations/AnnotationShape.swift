@@ -27,10 +27,17 @@ public protocol AnnotationShape: Sendable {
 
     /// JSON for saving.
     func payload() throws -> Data
+
+    /// Extra drag handles beyond the eight around the bounds (a speech bubble's tail tip). Image pixels.
+    var extraHandles: [CGPoint] { get }
+    /// The shape after dragging extra handle `index` to `point`.
+    func movingHandle(_ index: Int, to point: CGPoint) -> any AnnotationShape
 }
 
 public extension AnnotationShape {
     var shapeType: String { Self.typeID }
+    var extraHandles: [CGPoint] { [] }
+    func movingHandle(_ index: Int, to point: CGPoint) -> any AnnotationShape { self }
 }
 
 /// A shape that works on the picture underneath it (blur, pixelate, spotlight, magnifier), so it needs to see it.
@@ -111,6 +118,7 @@ public enum AnnotationRegistry {
         SpotlightShape.typeID: { try JSONDecoder().decode(SpotlightShape.self, from: $0) },
         MagnifierShape.typeID: { try JSONDecoder().decode(MagnifierShape.self, from: $0) },
         TextShape.typeID: { try JSONDecoder().decode(TextShape.self, from: $0) },
+        CalloutShape.typeID: { try JSONDecoder().decode(CalloutShape.self, from: $0) },
         StepShape.typeID: { try JSONDecoder().decode(StepShape.self, from: $0) },
     ]
 
