@@ -12,6 +12,10 @@ public final class SettingsStore: ObservableObject {
     /// Short messages shown under a setting in the window (e.g. "This shortcut is used by another app").
     @Published public private(set) var notes: [String: String] = [:]
 
+    /// Edits made in the Settings window that have not been applied yet. Features never see these:
+    /// they only see saved values, so nothing changes until the user presses Apply.
+    @Published public private(set) var pending: [String: SettingValue] = [:]
+
     private let defaults: UserDefaults
     private var values: [String: SettingValue] = [:]
 
@@ -104,6 +108,69 @@ public final class SettingsStore: ObservableObject {
 
     public func resetAll() {
         for definition in registry.definitions where definition.isVisible { reset(definition.id) }
+    }
+
+    // MARK: Drafts (staged edits for the Settings window)
+
+    /// What the window should show: the staged edit if there is one, otherwise the saved value.
+    public func draft(_ id: String) -> SettingValue { pending[id] ?? value(id) }
+
+    public func draftBool(_ id: String) -> Bool { if case .bool(let v) = draft(id) { return v }; return false }
+    public func draftInt(_ id: String) -> Int { if case .int(let v) = draft(id) { return v }; return 0 }
+    public func draftDouble(_ id: String) -> Double { if case .double(let v) = draft(id) { return v }; return 0 }
+    public func draftString(_ id: String) -> String { if case .string(let v) = draft(id) { return v }; return "" }
+    public func draftShortcut(_ id: String) -> KeyShortcut? { if case .shortcut(let v) = draft(id) { return v }; return nil }
+
+    /// Stages an edit. Putting a setting back to its saved value un-stages it.
+    public func setDraft(_ newValue: SettingValue, for id: String) {
+        guard let definition = registry.definition(for: id) else { return }
+        let value = definition.validated(newValue)
+        let next: SettingValue? = (value == self.value(id)) ? nil : value
+        guard pending[id] != next else { return }
+        objectWillChange.send()
+        pending[id] = next
+    }
+
+    public func setDraft(_ value: Bool, for id: String) { setDraft(.bool(value), for: id) }
+    public func setDraft(_ value: Int, for id: String) { setDraft(.int(value), for: id) }
+    public func setDraft(_ value: Double, for id: String) { setDraft(.double(value), for: id) }
+    public func setDraft(_ value: String, for id: String) { setDraft(.string(value), for: id) }
+    public func setDraft(_ value: KeyShortcut?, for id: String) { setDraft(.shortcut(value), for: id) }
+
+    public func isPending(_ id: String) -> Bool { pending[id] != nil }
+    public var hasPending: Bool { !pending.isEmpty }
+
+    /// Ids of the staged edits, in the order of the registry.
+    public var pendingIDs: [String] { registry.definitions.map(\.id).filter { pending[$0] != nil } }
+
+    public func isDraftDefault(_ id: String) -> Bool {
+        guard let definition = registry.definition(for: id) else { return true }
+        return draft(id) == definition.defaultValue
+    }
+
+    /// Stages the default for one setting / every setting on a tab / every setting.
+    public func resetDraft(_ id: String) {
+        if let definition = registry.definition(for: id) { setDraft(definition.defaultValue, for: id) }
+    }
+    public func resetDraft(section: SettingsSection) { registry.definitions(in: section).forEach { resetDraft($0.id) } }
+    public func resetDraftAll() { registry.definitions.filter(\.isVisible).forEach { resetDraft($0.id) } }
+
+    /// Saves every staged edit and tells the app about each one. Returns the ids that changed.
+    @discardableResult
+    public func applyPending() -> [String] {
+        let ids = pendingIDs
+        let staged = pending
+        objectWillChange.send()
+        pending = [:]
+        for id in ids { if let value = staged[id] { set(value, for: id) } }
+        return ids
+    }
+
+    /// Throws away every staged edit.
+    public func discardPending() {
+        guard !pending.isEmpty else { return }
+        objectWillChange.send()
+        pending = [:]
     }
 
     // MARK: Notes

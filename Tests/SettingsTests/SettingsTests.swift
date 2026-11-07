@@ -186,3 +186,81 @@ struct ShortcutConflictTests {
         #expect(KeyLabels.label(forKeyCode: 999, typed: "") == "Key 999")
     }
 }
+
+@MainActor
+struct DraftTests {
+    private func fresh() -> (SettingsStore, () -> Void) {
+        let suite = "CaptureDeckTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        return (SettingsStore(registry: registry(), defaults: defaults), { defaults.removePersistentDomain(forName: suite) })
+    }
+
+    @Test func draftsAreStagedAndFeaturesStillSeeTheSavedValue() {
+        let (store, cleanup) = fresh(); defer { cleanup() }
+        store.setDraft(false, for: "t.flag"); store.setDraft(9, for: "t.count")
+        #expect(!store.draftBool("t.flag") && store.draftInt("t.count") == 9)
+        #expect(store.bool("t.flag") && store.int("t.count") == 5)         // nothing has changed yet
+        #expect(store.hasPending && store.pendingIDs == ["t.flag", "t.count"])
+        #expect(store.isPending("t.flag") && !store.isPending("t.mode"))
+    }
+
+    @Test func applyingSavesEverythingAndAnnouncesEachChangeOnce() {
+        let (store, cleanup) = fresh(); defer { cleanup() }
+        var seen: [String] = []
+        let token = store.changes.sink { seen.append($0) }
+        store.setDraft(false, for: "t.flag"); store.setDraft("jpeg", for: "t.mode")
+        let applied = store.applyPending()
+        token.cancel()
+        #expect(applied == ["t.flag", "t.mode"] && seen == ["t.flag", "t.mode"])
+        #expect(!store.bool("t.flag") && store.string("t.mode") == "jpeg")
+        #expect(!store.hasPending)
+    }
+
+    @Test func discardingLeavesSavedValuesAlone() {
+        let (store, cleanup) = fresh(); defer { cleanup() }
+        store.setDraft(false, for: "t.flag")
+        var announced = false
+        let token = store.changes.sink { _ in announced = true }
+        store.discardPending()
+        token.cancel()
+        #expect(store.bool("t.flag") && !store.hasPending && !announced && store.draftBool("t.flag"))
+    }
+
+    @Test func puttingASettingBackToItsSavedValueUnstagesIt() {
+        let (store, cleanup) = fresh(); defer { cleanup() }
+        store.setDraft(8, for: "t.count")
+        #expect(store.hasPending)
+        store.setDraft(5, for: "t.count")                                   // the saved value again
+        #expect(!store.hasPending)
+    }
+
+    @Test func draftsAreValidatedLikeSavedValues() {
+        let (store, cleanup) = fresh(); defer { cleanup() }
+        store.setDraft(500, for: "t.count")
+        #expect(store.draftInt("t.count") == 10)
+        store.setDraft("webp", for: "t.mode")                               // not an allowed choice: falls back to the default (= saved)
+        #expect(!store.isPending("t.mode"))
+    }
+
+    @Test func resetsAreStagedToo() {
+        let (store, cleanup) = fresh(); defer { cleanup() }
+        store.set(9, for: "t.count"); store.set("jpeg", for: "t.mode")
+        store.resetDraft("t.count")
+        #expect(store.int("t.count") == 9 && store.draftInt("t.count") == 5)   // not applied until Apply
+        store.resetDraft(section: .output)
+        #expect(store.draftString("t.mode") == "png")
+        store.applyPending()
+        #expect(store.int("t.count") == 5 && store.string("t.mode") == "png")
+        store.set(false, for: "t.flag")
+        store.resetDraftAll()
+        #expect(store.hasPending && !store.draftBool("t.flag") == false)
+    }
+
+    @Test func shortcutDraftsWork() {
+        let (store, cleanup) = fresh(); defer { cleanup() }
+        store.setDraft(KeyShortcut.digit(4, [.command]), for: "t.hotkey")
+        #expect(store.draftShortcut("t.hotkey") == .digit(4, [.command]) && store.shortcut("t.hotkey") == .digit(1, [.control, .shift]))
+        store.setDraft(nil as KeyShortcut?, for: "t.hotkey")
+        #expect(store.draftShortcut("t.hotkey") == nil && store.isPending("t.hotkey"))
+    }
+}

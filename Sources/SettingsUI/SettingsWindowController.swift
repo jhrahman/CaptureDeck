@@ -32,6 +32,26 @@ public final class SettingsWindowController: NSObject, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    /// Closing with edits that were not applied asks what to do with them.
+    public func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard store.hasPending else { return true }
+        let alert = NSAlert()
+        alert.messageText = "Apply your changes?"
+        alert.informativeText = "You changed \(store.pending.count) \(store.pending.count == 1 ? "setting" : "settings") but did not press Apply."
+        alert.addButton(withTitle: "Apply")
+        alert.addButton(withTitle: "Discard")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: sender) { [weak self] response in
+            guard let self else { return }
+            switch response {
+            case .alertFirstButtonReturn: self.store.applyPending(); sender.close()
+            case .alertSecondButtonReturn: self.store.discardPending(); sender.close()
+            default: break
+            }
+        }
+        return false
+    }
+
     public func windowWillClose(_ notification: Notification) {
         ActivationPolicyManager.shared.release(self)
     }
