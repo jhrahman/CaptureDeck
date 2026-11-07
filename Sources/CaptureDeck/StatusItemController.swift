@@ -1,4 +1,5 @@
 import AppKit
+import CaptureEngine
 import DesignSystem
 
 /// Owns the menu bar icon and its menu.
@@ -6,9 +7,11 @@ import DesignSystem
 final class StatusItemController: NSObject {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let appearance: AppearanceController
+    private let coordinator: CaptureCoordinator
 
-    init(appearance: AppearanceController) {
+    init(appearance: AppearanceController, coordinator: CaptureCoordinator) {
         self.appearance = appearance
+        self.coordinator = coordinator
         super.init()
         statusItem.button?.image = Self.menuBarImage()
         statusItem.button?.toolTip = "CaptureDeck"
@@ -17,6 +20,23 @@ final class StatusItemController: NSObject {
 
     private func rebuildMenu() {
         let menu = NSMenu()
+
+        // One item per registered capture mode, showing its shortcut.
+        for mode in coordinator.modes {
+            let item = NSMenuItem(title: mode.title, action: #selector(capture(_:)), keyEquivalent: mode.defaultShortcut?.keyLabel ?? "")
+            item.target = self
+            item.representedObject = mode.id
+            if let shortcut = mode.defaultShortcut {
+                var mask: NSEvent.ModifierFlags = []
+                if shortcut.modifiers.contains(.command) { mask.insert(.command) }
+                if shortcut.modifiers.contains(.option) { mask.insert(.option) }
+                if shortcut.modifiers.contains(.control) { mask.insert(.control) }
+                if shortcut.modifiers.contains(.shift) { mask.insert(.shift) }
+                item.keyEquivalentModifierMask = mask
+            }
+            menu.addItem(item)
+        }
+        menu.addItem(.separator())
 
         let appearanceItem = NSMenuItem(title: "Appearance", action: nil, keyEquivalent: "")
         let submenu = NSMenu()
@@ -33,6 +53,14 @@ final class StatusItemController: NSObject {
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit CaptureDeck", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
+    }
+
+    @objc private func capture(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        // Let the menu finish closing so it is not part of the screenshot.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [coordinator] in
+            coordinator.run(modeID: id)
+        }
     }
 
     @objc private func selectAppearance(_ sender: NSMenuItem) {
