@@ -18,32 +18,41 @@ public struct ScreenCaptureKitGrabber: ScreenGrabber {
             throw CaptureError.permissionDenied
         }
 
-        let displayID: CGDirectDisplayID
-        switch target {
-        case .display(let id), .rect(_, let id): displayID = id
-        }
-        guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
-            throw CaptureError.noDisplayAvailable
-        }
-
-        let scale = Self.scale(of: display)
         let configuration = SCStreamConfiguration()
         configuration.showsCursor = includeCursor
         configuration.capturesAudio = false
 
+        let filter: SCContentFilter
         let pointSize: CGSize
+        let scale: CGFloat
+
         switch target {
-        case .display:
-            pointSize = CGSize(width: display.width, height: display.height)
-        case .rect(let rect, _):
-            configuration.sourceRect = rect
-            pointSize = rect.size
+        case .display(let id), .rect(_, let id):
+            guard let display = content.displays.first(where: { $0.displayID == id }) else {
+                throw CaptureError.noDisplayAvailable
+            }
+            scale = Self.scale(of: display)
+            filter = SCContentFilter(display: display, excludingWindows: [])
+            if case .rect(let rect, _) = target {
+                configuration.sourceRect = rect
+                pointSize = rect.size
+            } else {
+                pointSize = CGSize(width: display.width, height: display.height)
+            }
+        case .window(let windowID):
+            guard let window = content.windows.first(where: { $0.windowID == windowID }) else {
+                throw CaptureError.captureFailed("The window is no longer available.")
+            }
+            let display = content.displays.first { $0.frame.intersects(window.frame) }
+            scale = display.map(Self.scale(of:)) ?? 1
+            filter = SCContentFilter(desktopIndependentWindow: window)
+            pointSize = window.frame.size
+            if #available(macOS 14.0, *) { configuration.ignoreShadowsSingleWindow = true }
         }
         let pixels = pixelDimensions(pointSize: pointSize, scale: scale)
         configuration.width = pixels.width
         configuration.height = pixels.height
 
-        let filter = SCContentFilter(display: display, excludingWindows: [])
         let image = try await Self.grab(filter: filter, configuration: configuration)
         return CapturedImage(cgImage: image, scale: scale)
     }

@@ -5,7 +5,7 @@ import Testing
 
 private struct StubSelector: RegionSelecting {
     let outcome: Result<CaptureTarget, CaptureError>
-    func selectRegion(on snapshots: [DisplaySnapshot]) async throws -> CaptureTarget { try outcome.get() }
+    func selectRegion(on snapshots: [DisplaySnapshot], kind: RegionSelectionKind) async throws -> CaptureTarget { try outcome.get() }
 }
 
 private struct SolidGrabber: ScreenGrabber {

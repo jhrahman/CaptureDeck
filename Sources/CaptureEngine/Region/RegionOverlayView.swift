@@ -6,6 +6,9 @@ import CoreModels
 @MainActor
 final class RegionOverlayView: NSView {
     private var model: RegionSelectionModel
+    /// Non-nil in fixed-size mode: a rectangle of fixed pixel size follows the pointer.
+    private var fixed: FixedSizeSelectionModel?
+    private var presets: [CGSize] = []
     private let snapshot: CapturedImage
     private let style: OverlayStyle
     private var mouse: CGPoint?
@@ -21,11 +24,17 @@ final class RegionOverlayView: NSView {
     private static let loupeSize: CGFloat = 128
     private static let loupeSourcePoints: CGFloat = 16   // 8x magnification
 
-    init(frame: CGRect, snapshot: CapturedImage, style: OverlayStyle) {
-        self.model = RegionSelectionModel(bounds: CGRect(origin: .zero, size: frame.size))
+    init(frame: CGRect, snapshot: CapturedImage, style: OverlayStyle, kind: RegionSelectionKind) {
+        let bounds = CGRect(origin: .zero, size: frame.size)
+        self.model = RegionSelectionModel(bounds: bounds)
         self.snapshot = snapshot
         self.style = style
         super.init(frame: frame)
+        if case .fixedSize(let presets) = kind {
+            self.presets = presets
+            let initial = FixedSizePreference.load(default: presets.first ?? CGSize(width: 800, height: 600))
+            self.fixed = FixedSizeSelectionModel(bounds: bounds, scale: snapshot.scale, sizePx: initial)
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -51,18 +60,31 @@ final class RegionOverlayView: NSView {
         guard let window else { return }
         let inWindow = window.mouseLocationOutsideOfEventStream
         let p = convert(inWindow, from: nil)
-        if bounds.contains(p) { mouse = p }
+        if bounds.contains(p) { mouse = p; fixed?.move(to: p) }
     }
 
     // MARK: Mouse
 
     private func point(for event: NSEvent) -> CGPoint { convert(event.locationInWindow, from: nil) }
 
-    override func mouseEntered(with event: NSEvent) { mouse = point(for: event); needsDisplay = true }
+    override func mouseEntered(with event: NSEvent) { track(point(for: event)) }
     override func mouseExited(with event: NSEvent) { mouse = nil; needsDisplay = true }
-    override func mouseMoved(with event: NSEvent) { mouse = point(for: event); needsDisplay = true }
+    override func mouseMoved(with event: NSEvent) { track(point(for: event)) }
+
+    private func track(_ p: CGPoint) {
+        mouse = p
+        fixed?.move(to: p)
+        needsDisplay = true
+    }
 
     override func mouseDown(with event: NSEvent) {
+        if fixed != nil {   // fixed-size mode: a click captures the rectangle under the pointer
+            window?.makeKey()
+            let p = point(for: event)
+            track(p)
+            if let rect = fixed?.selection { onFinish?(rect) }
+            return
+        }
         guard !isLocked else { return }
         window?.makeKey()
         window?.makeFirstResponder(self)
@@ -74,6 +96,7 @@ final class RegionOverlayView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if fixed != nil { track(point(for: event)); return }
         let p = point(for: event)
         model.drag(to: p)
         mouse = p
@@ -81,6 +104,7 @@ final class RegionOverlayView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        if fixed != nil { return }
         if let rect = model.end(at: point(for: event)) {
             onFinish?(rect)
         } else {
@@ -89,7 +113,33 @@ final class RegionOverlayView: NSView {
         needsDisplay = true
     }
 
-    override func rightMouseDown(with event: NSEvent) { resetSelection() }
+    override func rightMouseDown(with event: NSEvent) {
+        if fixed != nil { showPresetMenu(for: event) } else { resetSelection() }
+    }
+
+    private func showPresetMenu(for event: NSEvent) {
+        guard let current = fixed?.sizePx else { return }
+        let menu = NSMenu()
+        for size in presets {
+            let item = NSMenuItem(title: "\(Int(size.width)) × \(Int(size.height))", action: #selector(choosePreset(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = NSValue(size: size)
+            item.state = size == current ? .on : .off
+            menu.addItem(item)
+        }
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+
+    @objc private func choosePreset(_ sender: NSMenuItem) {
+        guard let size = (sender.representedObject as? NSValue)?.sizeValue else { return }
+        applyFixedSize(size)
+    }
+
+    private func applyFixedSize(_ size: CGSize) {
+        fixed?.setSize(px: size)
+        if let now = fixed?.sizePx { FixedSizePreference.save(now) }
+        needsDisplay = true
+    }
 
     private func resetSelection() {
         model.reset()
@@ -99,7 +149,29 @@ final class RegionOverlayView: NSView {
 
     // MARK: Keyboard
 
+    private func fixedKeyDown(_ event: NSEvent) {
+        let flags = event.modifierFlags
+        let step: CGFloat = flags.contains(.option) ? 10 : 1
+        switch event.keyCode {
+        case 53: onCancel?()
+        case 36, 76:
+            if let rect = fixed?.selection { onFinish?(rect) }
+        case 123, 124, 125, 126:
+            let dx: CGFloat = event.keyCode == 123 ? -step : (event.keyCode == 124 ? step : 0)
+            let dy: CGFloat = event.keyCode == 126 ? -step : (event.keyCode == 125 ? step : 0)
+            if flags.contains(.shift) {           // Shift + arrows: change the size, one pixel at a time
+                fixed?.resize(dxPx: dx, dyPx: dy)
+                if let now = fixed?.sizePx { FixedSizePreference.save(now) }
+            } else {
+                fixed?.nudge(dx: dx, dy: dy)
+            }
+        default: super.keyDown(with: event)
+        }
+        needsDisplay = true
+    }
+
     override func keyDown(with event: NSEvent) {
+        if fixed != nil { fixedKeyDown(event); return }
         let step: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
         switch event.keyCode {
         case 53:                       // Esc
@@ -126,7 +198,7 @@ final class RegionOverlayView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let dim = NSBezierPath(rect: bounds)
-        let selection = model.selection
+        let selection = fixed != nil ? (mouse != nil ? fixed?.selection : nil) : model.selection
         if let selection {
             dim.appendRect(selection)
             dim.windingRule = .evenOdd

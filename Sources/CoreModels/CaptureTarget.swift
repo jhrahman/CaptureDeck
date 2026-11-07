@@ -5,6 +5,8 @@ public enum CaptureTarget: Sendable, Equatable {
     case display(CGDirectDisplayID)
     /// A rectangle in the display's point coordinate space (origin top-left).
     case rect(CGRect, display: CGDirectDisplayID)
+    /// A single window, captured on its own (transparent corners, no desktop behind it).
+    case window(CGWindowID)
 }
 
 public enum CaptureError: Error, Sendable, Equatable {

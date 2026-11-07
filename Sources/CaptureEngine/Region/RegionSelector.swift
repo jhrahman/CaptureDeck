@@ -7,8 +7,8 @@ public struct RegionSelector: RegionSelecting {
 
     public init(style: OverlayStyle = OverlayStyle()) { self.style = style }
 
-    public func selectRegion(on snapshots: [DisplaySnapshot]) async throws -> CaptureTarget {
-        try await RegionSelectionSession(snapshots: snapshots, style: style).run()
+    public func selectRegion(on snapshots: [DisplaySnapshot], kind: RegionSelectionKind) async throws -> CaptureTarget {
+        try await RegionSelectionSession(snapshots: snapshots, style: style, kind: kind).run()
     }
 }
 
@@ -23,13 +23,15 @@ private final class OverlayWindow: NSWindow {
 private final class RegionSelectionSession {
     private let snapshots: [DisplaySnapshot]
     private let style: OverlayStyle
+    private let kind: RegionSelectionKind
     private var windows: [OverlayWindow] = []
     private var views: [RegionOverlayView] = []
     private var continuation: CheckedContinuation<CaptureTarget, any Error>?
 
-    init(snapshots: [DisplaySnapshot], style: OverlayStyle) {
+    init(snapshots: [DisplaySnapshot], style: OverlayStyle, kind: RegionSelectionKind) {
         self.snapshots = snapshots
         self.style = style
+        self.kind = kind
     }
 
     func run() async throws -> CaptureTarget {
@@ -55,7 +57,7 @@ private final class RegionSelectionSession {
             backdrop.layer?.contents = snapshot.image.cgImage
             backdrop.layer?.contentsGravity = .resize
 
-            let overlay = RegionOverlayView(frame: backdrop.bounds, snapshot: snapshot.image, style: style)
+            let overlay = RegionOverlayView(frame: backdrop.bounds, snapshot: snapshot.image, style: style, kind: kind)
             overlay.autoresizingMask = [.width, .height]
             overlay.onClaim = { [weak self, weak overlay] in self?.lockOthers(except: overlay) }
             overlay.onRelease = { [weak self] in self?.unlockAll() }

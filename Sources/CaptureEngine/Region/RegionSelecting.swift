@@ -24,11 +24,20 @@ public struct DisplayInfo: Sendable, Equatable {
     }
 }
 
+/// How the user chooses a region.
+public enum RegionSelectionKind: Sendable, Equatable {
+    /// Drag out any rectangle.
+    case drag
+    /// A rectangle of a fixed pixel size follows the pointer; click to capture.
+    /// `presets` appear in a right-click menu.
+    case fixedSize(presets: [CGSize])
+}
+
 /// Lets the user choose a region. Returns a target (not an image) so other features,
-/// such as fixed-size capture or future recording, can reuse the same selection UI.
+/// such as future recording, can reuse the same selection UI.
 public protocol RegionSelecting: Sendable {
     /// Throws `CaptureError.cancelled` if the user backs out.
-    func selectRegion(on snapshots: [DisplaySnapshot]) async throws -> CaptureTarget
+    func selectRegion(on snapshots: [DisplaySnapshot], kind: RegionSelectionKind) async throws -> CaptureTarget
 }
 
 public struct OverlayStyle: @unchecked Sendable {

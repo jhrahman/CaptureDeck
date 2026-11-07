@@ -13,6 +13,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let coordinator = CaptureCoordinator(modes: [
         FullScreenCaptureMode(),
         RegionCaptureMode(selector: RegionSelector(style: OverlayStyle(accent: Theme.accent))),
+        ActiveWindowCaptureMode(),
+        FixedSizeCaptureMode(selector: RegionSelector(style: OverlayStyle(accent: Theme.accent))),
     ])
     private var statusItem: StatusItemController?
 
