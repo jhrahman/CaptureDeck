@@ -7,11 +7,27 @@ import Platform
 struct CaptureSettings {
     var autoCopyToClipboard = true
     var includeCursor = false
+    var delaySeconds = 0
+    var autoSave = false
+    var saveFolder = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first!
+        .appendingPathComponent("CaptureDeck", isDirectory: true)
+    var fileTemplate = FilenameTemplate.defaultTemplate
+    var format = ImageFileFormat.png
 
     static func load(from defaults: UserDefaults = .standard) -> CaptureSettings {
         var s = CaptureSettings()
-        if defaults.object(forKey: "capture.autoCopy") != nil { s.autoCopyToClipboard = defaults.bool(forKey: "capture.autoCopy") }
-        if defaults.object(forKey: "capture.includeCursor") != nil { s.includeCursor = defaults.bool(forKey: "capture.includeCursor") }
+        func bool(_ key: String) -> Bool? { defaults.object(forKey: key) == nil ? nil : defaults.bool(forKey: key) }
+        if let v = bool("capture.autoCopy") { s.autoCopyToClipboard = v }
+        if let v = bool("capture.includeCursor") { s.includeCursor = v }
+        if let v = bool("capture.autoSave") { s.autoSave = v }
+        if defaults.object(forKey: "capture.delaySeconds") != nil {
+            s.delaySeconds = min(max(defaults.integer(forKey: "capture.delaySeconds"), 0), 30)
+        }
+        if let path = defaults.string(forKey: "capture.saveFolder"), !path.isEmpty {
+            s.saveFolder = URL(fileURLWithPath: (path as NSString).expandingTildeInPath, isDirectory: true)
+        }
+        if let t = defaults.string(forKey: "capture.fileTemplate"), !t.isEmpty { s.fileTemplate = t }
+        if let f = defaults.string(forKey: "capture.format").flatMap(ImageFileFormat.init(rawValue:)) { s.format = f }
         return s
     }
 }
@@ -47,6 +63,7 @@ final class CaptureCoordinator {
         if mode.wantsAccessibility { offerAccessibilityOnce() }
 
         let settings = CaptureSettings.load()
+        if settings.delaySeconds > 0 { await CountdownHUD().run(seconds: settings.delaySeconds) }
         do {
             let result = try await mode.run(CaptureContext(grabber: grabber, includeCursor: settings.includeCursor))
             try deliver(result, settings: settings)
@@ -66,8 +83,29 @@ final class CaptureCoordinator {
             if settings.autoCopyToClipboard {
                 try clipboard.copy(image)
             }
+            if settings.autoSave { save(image, settings: settings) }
             NSSound(named: NSSound.Name("Tink"))?.play()
         }
+    }
+
+    /// Encoding a large capture takes a moment, so it runs off the main thread.
+    private func save(_ image: CapturedImage, settings: CaptureSettings) {
+        Task.detached {
+            do {
+                try FileSaver().save(image, to: settings.saveFolder, template: settings.fileTemplate, format: settings.format)
+            } catch {
+                await self.showSaveError(error, folder: settings.saveFolder)
+            }
+        }
+    }
+
+    private func showSaveError(_ error: any Error, folder: URL) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Could not save the screenshot"
+        alert.informativeText = "The image is still on the clipboard. Check that CaptureDeck can write to \(folder.path)."
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
     }
 
     // MARK: Permission
