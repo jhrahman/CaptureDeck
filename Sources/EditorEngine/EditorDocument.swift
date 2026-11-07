@@ -36,6 +36,8 @@ public final class EditorDocument: ObservableObject, Identifiable {
     @Published public private(set) var workingImage: CapturedImage
     @Published public private(set) var undoNames: [String] = []
     @Published public private(set) var redoNames: [String] = []
+    /// The selected area, in working-image pixels. Selection is not part of the undo history.
+    @Published public private(set) var selection: EditorSelection?
 
     private var undoStack: [any EditorCommand] = []
     private var redoStack: [any EditorCommand] = []
@@ -97,12 +99,53 @@ public final class EditorDocument: ObservableObject, Identifiable {
         redoNames = redoStack.map(\.name)
     }
 
+    // MARK: Selection
+
+    public var imageBounds: CGRect {
+        CGRect(x: 0, y: 0, width: workingImage.cgImage.width, height: workingImage.cgImage.height)
+    }
+
+    /// Sets the selection, clamped to the image. Empty selections clear it.
+    public func setSelection(_ new: EditorSelection?) {
+        switch new {
+        case .rect(let r)?:
+            let clamped = r.intersection(imageBounds)
+            selection = (clamped.isNull || clamped.width < 1 || clamped.height < 1) ? nil : .rect(clamped)
+        case .freehand(let points)?:
+            let b = imageBounds
+            let clamped = points.map { CGPoint(x: min(max($0.x, b.minX), b.maxX), y: min(max($0.y, b.minY), b.maxY)) }
+            selection = clamped.count >= 3 ? .freehand(clamped) : nil
+        case nil:
+            selection = nil
+        }
+    }
+
+    public func selectAll() { setSelection(.rect(imageBounds)) }
+    public func clearSelection() { selection = nil }
+
+    /// The selected pixels as their own image (freehand selections are transparent outside the outline).
+    public func selectionImage() -> CapturedImage? {
+        switch selection {
+        case .rect(let r)?: return workingImage.cropped(toPixelRect: r)
+        case .freehand(let points)?: return workingImage.cropped(toPixelPolygon: points)
+        case nil: return nil
+        }
+    }
+
+    /// Crops the picture to the selection's bounding box (an undoable operation).
+    @discardableResult
+    public func cropToSelection() -> Bool {
+        guard let selection else { return false }
+        return apply(.crop(selection.bounds.integral))
+    }
+
     // MARK: Used by commands
 
     func appendOperation(_ operation: ImageOperation) -> Bool {
         guard let image = operation.apply(to: workingImage.cgImage) else { return false }
         operations.append(operation)
         workingImage = CapturedImage(cgImage: image, scale: workingImage.scale)
+        selection = nil          // the picture changed shape; the old selection no longer applies
         return true
     }
 
@@ -116,5 +159,6 @@ public final class EditorDocument: ObservableObject, Identifiable {
             image = next
         }
         workingImage = CapturedImage(cgImage: image, scale: original.scale)
+        selection = nil
     }
 }

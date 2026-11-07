@@ -32,25 +32,38 @@ public extension CapturedImage {
     /// A pixel-exact copy of `pointRect` (display points, origin top-left), clamped to the image.
     /// Draws into a new bitmap so the result does not keep the whole source image alive in memory.
     func cropped(toPointRect pointRect: CGRect) -> CapturedImage? {
-        crop(pointRect: pointRect, polygon: nil)
+        cropPixels(pixelRect(forPointRect: pointRect), polygon: nil)
     }
 
-    /// The polygon's bounding box with everything outside the polygon transparent.
+    /// The polygon's bounding box with everything outside the polygon transparent (points, origin top-left).
     func cropped(toPolygon points: [CGPoint]) -> CapturedImage? {
+        cropped(toPixelPolygon: points.map { CGPoint(x: $0.x * scale, y: $0.y * scale) })
+    }
+
+    /// Same as `cropped(toPointRect:)` but in image pixels, so whole-pixel rectangles are never nudged by rounding.
+    func cropped(toPixelRect rect: CGRect) -> CapturedImage? {
+        cropPixels(rect.integral, polygon: nil)
+    }
+
+    /// The polygon's bounding box with the outside transparent (image pixels, origin top-left).
+    func cropped(toPixelPolygon points: [CGPoint]) -> CapturedImage? {
         guard points.count >= 3 else { return nil }
         let xs = points.map(\.x), ys = points.map(\.y)
-        let box = CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
-        return crop(pointRect: box, polygon: points)
+        let box = CGRect(x: xs.min()!.rounded(.down), y: ys.min()!.rounded(.down),
+                         width: xs.max()!.rounded(.up) - xs.min()!.rounded(.down),
+                         height: ys.max()!.rounded(.up) - ys.min()!.rounded(.down))
+        return cropPixels(box, polygon: points)
     }
 
-    private func crop(pointRect: CGRect, polygon: [CGPoint]?) -> CapturedImage? {
+    private func pixelRect(forPointRect pointRect: CGRect) -> CGRect {
+        CGRect(x: (pointRect.minX * scale).rounded(.down), y: (pointRect.minY * scale).rounded(.down),
+               width: (pointRect.width * scale).rounded(.up), height: (pointRect.height * scale).rounded(.up))
+    }
+
+    /// `polygon` is in full-image pixels (top-left origin).
+    private func cropPixels(_ requested: CGRect, polygon: [CGPoint]?) -> CapturedImage? {
         let bounds = CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height)
-        let pixelRect = CGRect(
-            x: (pointRect.minX * scale).rounded(.down),
-            y: (pointRect.minY * scale).rounded(.down),
-            width: (pointRect.width * scale).rounded(.up),
-            height: (pointRect.height * scale).rounded(.up)
-        ).intersection(bounds)
+        let pixelRect = requested.intersection(bounds)
         guard !pixelRect.isNull, pixelRect.width >= 1, pixelRect.height >= 1 else { return nil }
 
         let width = Int(pixelRect.width), height = Int(pixelRect.height)
@@ -64,20 +77,13 @@ public extension CapturedImage {
         context.interpolationQuality = .none
         if let polygon {
             // Clip to the outline. Bitmap origin is bottom-left; polygon points are top-left based.
-            let mapped = polygon.map {
-                CGPoint(x: $0.x * scale - pixelRect.minX, y: pixelRect.maxY - $0.y * scale)
-            }
-            context.addLines(between: mapped)
+            context.addLines(between: polygon.map { CGPoint(x: $0.x - pixelRect.minX, y: pixelRect.maxY - $0.y) })
             context.closePath()
             context.clip()
         }
         // CGContext origin is bottom-left; pixelRect origin is top-left.
-        context.draw(cgImage, in: CGRect(
-            x: -pixelRect.minX,
-            y: -(bounds.height - pixelRect.maxY),
-            width: bounds.width,
-            height: bounds.height
-        ))
+        context.draw(cgImage, in: CGRect(x: -pixelRect.minX, y: -(bounds.height - pixelRect.maxY),
+                                         width: bounds.width, height: bounds.height))
         guard let result = context.makeImage() else { return nil }
         return CapturedImage(cgImage: result, scale: scale)
     }

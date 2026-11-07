@@ -1,5 +1,6 @@
 import AppKit
 import DesignSystem
+import EditorEngine
 
 /// Draws the working image 1:1 (one view unit = one image pixel); the scroll view provides the zoom.
 /// Shows a checkerboard behind transparent images.
@@ -14,7 +15,64 @@ final class CanvasView: NSView {
     }
     private var hasTransparency = false
 
+    /// The selected area (image pixels) drawn over the picture, and what to do with the mouse and keys.
+    var selection: EditorSelection? { didSet { needsDisplay = true } }
+    var showSelectionSize = true { didSet { needsDisplay = true } }
+    var toolContext: (() -> ToolContext)?
+    var activeTool: (any EditorTool)?
+    var onToolKey: ((String) -> Bool)?       // single-letter tool switching
+    var onCycleTool: ((Bool) -> Void)?       // Tab / Shift+Tab
+
     override var isFlipped: Bool { true }
+    override var acceptsFirstResponder: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    // MARK: Events
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .cursorUpdate, .activeInKeyWindow, .inVisibleRect],
+                                       owner: self, userInfo: nil))
+    }
+
+    private func imagePoint(_ event: NSEvent) -> CGPoint { convert(event.locationInWindow, from: nil) }
+
+    private func updateCursor(_ event: NSEvent) {
+        guard let tool = activeTool, let context = toolContext?() else { return }
+        tool.cursor(at: imagePoint(event), context: context).set()
+    }
+
+    override func cursorUpdate(with event: NSEvent) { updateCursor(event) }
+    override func mouseMoved(with event: NSEvent) { updateCursor(event) }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        guard let tool = activeTool, let context = toolContext?() else { return }
+        tool.mouseDown(at: imagePoint(event), context: context)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let tool = activeTool, let context = toolContext?() else { return }
+        tool.mouseDragged(to: imagePoint(event), context: context)
+        autoscroll(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard let tool = activeTool, let context = toolContext?() else { return }
+        tool.mouseUp(at: imagePoint(event), context: context)
+        updateCursor(event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if let tool = activeTool, let context = toolContext?(), tool.keyDown(event, context: context) { return }
+        if flags.isEmpty || flags == .shift {
+            if event.keyCode == 48 { onCycleTool?(flags == .shift); return }          // Tab / Shift+Tab
+            if let key = event.charactersIgnoringModifiers?.lowercased(), onToolKey?(key) == true { return }
+        }
+        super.keyDown(with: event)
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         guard let image, let context = NSGraphicsContext.current?.cgContext else { return }
@@ -30,6 +88,73 @@ final class CanvasView: NSView {
         context.scaleBy(x: 1, y: -1)
         context.draw(image, in: CGRect(origin: .zero, size: bounds.size))
         context.restoreGState()
+
+        if let selection { drawSelection(selection, in: context) }
+    }
+
+    // MARK: Selection overlay
+
+    /// Marching-ants outline, handles for a rectangle, and the size label. Everything is sized in screen
+    /// points, so it looks the same at any zoom.
+    private func drawSelection(_ selection: EditorSelection, in context: CGContext) {
+        let unit = 1 / max(enclosingScrollView?.magnification ?? 1, 0.0001)      // image pixels per screen point
+        context.saveGState()
+        context.setLineWidth(unit)
+
+        func outline(_ draw: () -> Void) {
+            context.setStrokeColor(CGColor(gray: 1, alpha: 1))
+            context.setLineDash(phase: 0, lengths: [])
+            draw(); context.strokePath()
+            context.setStrokeColor(CGColor(gray: 0, alpha: 1))
+            context.setLineDash(phase: 0, lengths: [4 * unit, 4 * unit])
+            draw(); context.strokePath()
+        }
+
+        switch selection {
+        case .rect(let rect):
+            outline { context.addRect(rect) }
+            let handle = 7 * unit
+            context.setLineDash(phase: 0, lengths: [])
+            context.setLineWidth(unit)
+            let xs: [CGFloat] = [rect.minX, rect.midX, rect.maxX]
+            let ys: [CGFloat] = [rect.minY, rect.midY, rect.maxY]
+            var handlePoints: [CGPoint] = []
+            for (i, x) in xs.enumerated() {
+                for (j, y) in ys.enumerated() where !(i == 1 && j == 1) { handlePoints.append(CGPoint(x: x, y: y)) }
+            }
+            for point in handlePoints {
+                let box = CGRect(x: point.x - handle / 2, y: point.y - handle / 2, width: handle, height: handle)
+                context.setFillColor(CGColor(gray: 1, alpha: 1))
+                context.fill(box)
+                context.setStrokeColor(CGColor(gray: 0, alpha: 1))
+                context.stroke(box)
+            }
+        case .freehand(let points):
+            outline {
+                guard let first = points.first else { return }
+                context.move(to: first)
+                points.dropFirst().forEach { context.addLine(to: $0) }
+                context.closePath()
+            }
+        }
+        context.restoreGState()
+
+        if showSelectionSize {
+            let box = selection.bounds
+            let text = "\(Int(box.width)) × \(Int(box.height))"
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 11 * unit, weight: .medium),
+                .foregroundColor: NSColor.white,
+            ]
+            let size = (text as NSString).size(withAttributes: attributes)
+            let pad = 5 * unit
+            let labelRect = CGRect(x: box.minX, y: box.minY - size.height - 2 * pad - 2 * unit,
+                                   width: size.width + 2 * pad, height: size.height + pad)
+            let placed = labelRect.minY < 0 ? labelRect.offsetBy(dx: 0, dy: box.height + labelRect.height + 4 * unit) : labelRect
+            NSColor.black.withAlphaComponent(0.75).setFill()
+            NSBezierPath(roundedRect: placed, xRadius: 4 * unit, yRadius: 4 * unit).fill()
+            (text as NSString).draw(at: CGPoint(x: placed.minX + pad, y: placed.minY + pad / 2), withAttributes: attributes)
+        }
     }
 
     private func drawCheckerboard(in rect: CGRect, square: CGFloat, _ context: CGContext) {

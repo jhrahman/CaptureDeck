@@ -1,6 +1,7 @@
 import CaptureEngine
 import CoreModels
 import DesignSystem
+import EditorUI
 import Foundation
 import Platform
 import Settings
@@ -35,6 +36,8 @@ enum SettingID {
 
     static let editorAskBeforeDiscard = "editor.askBeforeDiscard"
     static let editorSaveOverwritesOpened = "editor.saveOverwritesOpenedFile"
+    static let editorDefaultTool = "editor.defaultTool"
+    static let editorShowSelectionSize = "editor.showSelectionSize"
 
     static let appearance = "appearance.preference"
 
@@ -130,6 +133,14 @@ enum AppSettings {
                   title: "Save writes back to files opened from disk",
                   help: "Off: Save asks where to save, so an opened file is never overwritten by accident.",
                   defaultValue: .bool(false), control: .toggle, order: 1),
+        ]
+
+        defs += [
+            .init(id: SettingID.editorDefaultTool, section: .editor, group: "Tools", title: "Tool selected when an image opens",
+                  defaultValue: .string(EditorToolRegistry.defaultToolID),
+                  control: .choice(EditorToolRegistry.descriptors.map { .init($0.id, $0.title) }), order: 0),
+            .init(id: SettingID.editorShowSelectionSize, section: .editor, group: "Tools", title: "Show the size of the selection",
+                  defaultValue: .bool(true), control: .toggle, order: 1),
         ]
 
         // Appearance

@@ -43,3 +43,24 @@ struct CropTests {
         #expect(c.cgImage.width == 10 && c.cgImage.height == 10)
     }
 }
+
+struct PixelCropTests {
+    @Test func pixelRectIsExactEvenWhenScaleIsNotAPowerOfTwo() throws {
+        // 30x20 px at scale 3 (3 px per point): a point-based crop could drift by a pixel; the pixel API must not.
+        let ctx = CGContext(data: nil, width: 30, height: 20, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let image = CapturedImage(cgImage: ctx.makeImage()!, scale: 3)
+        for x in 0..<20 {
+            let out = try #require(image.cropped(toPixelRect: CGRect(x: x, y: 1, width: 7, height: 9)))
+            #expect(out.pixelSize == CGSize(width: 7, height: 9) && out.scale == 3)
+        }
+    }
+
+    @Test func pixelPolygonMatchesItsBoundingBox() throws {
+        let ctx = CGContext(data: nil, width: 40, height: 20, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let image = CapturedImage(cgImage: ctx.makeImage()!, scale: 2)
+        let out = try #require(image.cropped(toPixelPolygon: [CGPoint(x: 5, y: 2), CGPoint(x: 25, y: 2), CGPoint(x: 15, y: 12)]))
+        #expect(out.pixelSize == CGSize(width: 20, height: 10))
+    }
+}

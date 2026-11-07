@@ -37,15 +37,29 @@ enum EditorMenu {
         add("Undo", to: edit, action: Selector(("performUndo:")), key: "z")
         add("Redo", to: edit, action: Selector(("performRedo:")), key: "z", modifiers: [.command, .shift])
         edit.addItem(.separator())
+        add("Select All", to: edit, action: Selector(("selectEverything:")), key: "a")
+        add("Deselect", to: edit, action: Selector(("deselect:")), key: "d")
+        edit.addItem(.separator())
         add("Copy Image", to: edit, action: Selector(("copyImage:")), key: "c")
+        add("Duplicate Selection to New Tab", to: edit, action: Selector(("duplicateSelection:")), key: "d", modifiers: [.command, .shift])
         add("Paste as New Tab", to: edit, action: #selector(EditorStore.pasteAsNewTab(_:)), key: "v", target: store)
 
         let image = submenu("Image")
+        add("Crop to Selection", to: image, action: Selector(("cropToSelection:")), key: "k")
+        image.addItem(.separator())
         add("Rotate Right", to: image, action: Selector(("rotateRight:")), key: "r")
         add("Rotate Left", to: image, action: Selector(("rotateLeft:")), key: "l")
         image.addItem(.separator())
         add("Flip Horizontal", to: image, action: Selector(("flipHorizontal:")))
         add("Flip Vertical", to: image, action: Selector(("flipVertical:")))
+
+        // Tools: generated from the tool registry, with each tool's single-key shortcut shown.
+        let tools = submenu("Tools")
+        for descriptor in EditorToolRegistry.descriptors {
+            let item = NSMenuItem(title: "\(descriptor.title)  (\(descriptor.key.uppercased()))", action: Selector(("chooseTool:")), keyEquivalent: "")
+            item.representedObject = descriptor.id
+            tools.addItem(item)
+        }
 
         let view = submenu("View")
         add("Zoom In", to: view, action: Selector(("zoomIn:")), key: "=")

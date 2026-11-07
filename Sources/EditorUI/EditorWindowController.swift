@@ -19,7 +19,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     init(editorDocument: EditorDocument, store: EditorStore) {
         self.editorDocument = editorDocument
         self.store = store
-        self.viewController = EditorViewController(document: editorDocument)
+        self.viewController = EditorViewController(document: editorDocument, settings: store.settings)
 
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 760),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
@@ -40,6 +40,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         window.toolbar = toolbar
         window.toolbarStyle = .unified
 
+        viewController.onToolChanged = { [weak self] descriptor in self?.toolbarToolGroup?.selectedIndex = EditorToolRegistry.descriptors.firstIndex(of: descriptor) ?? 0 }
         viewController.scrollView.onFilesDropped = { [weak self] urls in self?.store?.open(urls: urls) }
         editorDocument.$title.sink { [weak window] in window?.title = $0 }.store(in: &cancellables)
         editorDocument.$fileURL.sink { [weak window] in window?.representedURL = $0 }.store(in: &cancellables)
@@ -64,8 +65,30 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     @objc func zoomFit(_ sender: Any?) { viewController.scrollView.zoomToFit() }
     @objc func zoomActual(_ sender: Any?) { viewController.scrollView.zoomActualSize() }
 
+    /// Copies the selected area if there is one, otherwise the whole picture.
     @objc func copyImage(_ sender: Any?) {
-        do { try ClipboardManager().copy(editorDocument.flattenedImage()) } catch { NSSound.beep() }
+        let image = editorDocument.selectionImage() ?? editorDocument.flattenedImage()
+        do { try ClipboardManager().copy(image) } catch { NSSound.beep() }
+    }
+
+    @objc func selectEverything(_ sender: Any?) { editorDocument.selectAll() }
+    @objc func deselect(_ sender: Any?) { editorDocument.clearSelection() }
+    @objc func cropToSelection(_ sender: Any?) { editorDocument.cropToSelection() }
+
+    @objc func duplicateSelection(_ sender: Any?) {
+        guard let image = editorDocument.selectionImage() else { return }
+        store?.open(image: image, title: "\(editorDocument.title) selection")
+    }
+
+    @objc func chooseTool(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        viewController.selectTool(id: id)
+    }
+
+    @objc func chooseToolFromToolbar(_ sender: NSToolbarItemGroup) {
+        let descriptors = EditorToolRegistry.descriptors
+        guard descriptors.indices.contains(sender.selectedIndex) else { return }
+        viewController.selectTool(id: descriptors[sender.selectedIndex].id)
     }
 
     @objc func saveDocument(_ sender: Any?) { save { _ in } }
@@ -151,6 +174,14 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         case #selector(performRedo(_:)):
             item.title = editorDocument.redoName.map { "Redo \($0)" } ?? "Redo"
             return editorDocument.canRedo
+        case #selector(copyImage(_:)):
+            item.title = editorDocument.selection == nil ? "Copy Image" : "Copy Selection"
+            return true
+        case #selector(deselect(_:)), #selector(cropToSelection(_:)), #selector(duplicateSelection(_:)):
+            return editorDocument.selection != nil
+        case #selector(chooseTool(_:)):
+            item.state = (item.representedObject as? String) == viewController.activeTool.descriptor.id ? .on : .off
+            return true
         default: return true
         }
     }
@@ -173,6 +204,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     }
 
     private static let entries: [ToolbarEntry] = [
+        .init(id: .cropSelection, label: "Crop to Selection", symbols: ["crop"], action: #selector(cropToSelection(_:))),
         .init(id: .undo, label: "Undo", symbols: ["arrow.uturn.backward"], action: #selector(performUndo(_:))),
         .init(id: .redo, label: "Redo", symbols: ["arrow.uturn.forward"], action: #selector(performRedo(_:))),
         .init(id: .rotateLeft, label: "Rotate Left", symbols: ["rotate.left", "arrow.counterclockwise"], action: #selector(rotateLeft(_:))),
@@ -187,8 +219,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         .init(id: .save, label: "Save", symbols: ["square.and.arrow.down"], action: #selector(saveDocument(_:))),
     ]
 
+    private var toolbarToolGroup: NSToolbarItemGroup?
+
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.undo, .redo, .space, .rotateLeft, .rotateRight, .flipH, .flipV, .space,
+        [.tools, .space, .undo, .redo, .space, .cropSelection, .rotateLeft, .rotateRight, .flipH, .flipV, .space,
          .zoomOut, .zoomIn, .zoomFit, .zoomActual, .flexibleSpace, .copy, .save]
     }
 
@@ -198,6 +232,18 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        if identifier == .tools {
+            let descriptors = EditorToolRegistry.descriptors
+            let images = descriptors.map { d in NSImage(systemSymbolName: d.symbol, accessibilityDescription: d.title) ?? NSImage() }
+            let group = NSToolbarItemGroup(itemIdentifier: identifier, images: images, selectionMode: .selectOne,
+                                           labels: descriptors.map(\.title), target: self, action: #selector(chooseToolFromToolbar(_:)))
+            group.label = "Tools"
+            group.paletteLabel = "Tools"
+            group.selectedIndex = descriptors.firstIndex(of: viewController.activeTool.descriptor) ?? 0
+            for (item, d) in zip(group.subitems, descriptors) { item.toolTip = "\(d.title)  (\(d.key.uppercased()))" }
+            toolbarToolGroup = group
+            return group
+        }
         guard let entry = Self.entries.first(where: { $0.id == identifier }) else { return nil }
         let item = NSToolbarItem(itemIdentifier: identifier)
         item.label = entry.label
@@ -212,6 +258,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
 }
 
 private extension NSToolbarItem.Identifier {
+    static let tools = Self("tools")
+    static let cropSelection = Self("cropSelection")
     static let undo = Self("undo")
     static let redo = Self("redo")
     static let rotateLeft = Self("rotateLeft")
