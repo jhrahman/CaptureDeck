@@ -95,6 +95,8 @@ public enum AnnotationRegistry {
         LineShape.typeID: { try JSONDecoder().decode(LineShape.self, from: $0) },
         PencilShape.typeID: { try JSONDecoder().decode(PencilShape.self, from: $0) },
         HighlighterShape.typeID: { try JSONDecoder().decode(HighlighterShape.self, from: $0) },
+        TextShape.typeID: { try JSONDecoder().decode(TextShape.self, from: $0) },
+        StepShape.typeID: { try JSONDecoder().decode(StepShape.self, from: $0) },
     ]
 
     /// Unknown or damaged types are kept untouched (as `UnknownShape`), so a file saved by a newer

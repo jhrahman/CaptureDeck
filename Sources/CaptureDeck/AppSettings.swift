@@ -164,9 +164,16 @@ enum AppSettings {
                     .init(id: id, section: .drawing, group: tool.title, title: title, defaultValue: value, control: control, order: index)
                 }
                 switch property {
-                case .stroke: defs.append(def("Color", .string(style.strokeColor.hex), .color))
-                case .fill: defs.append(def("Fill color", .string(style.fillColor.hex), .color))
-                case .width: defs.append(def("Line width", .int(Int(style.lineWidth)), .stepper(0...100, unit: "px")))
+                case .stroke: defs.append(def(tool.propertyTitles[.stroke].map { "\($0) color" } ?? "Color", .string(style.strokeColor.hex), .color))
+                case .fill: defs.append(def(tool.propertyTitles[.fill].map { "\($0) color" } ?? "Fill color", .string(style.fillColor.hex), .color))
+                case .width: defs.append(def(tool.propertyTitles[.width] ?? "Line width", .int(Int(style.lineWidth)), .stepper(0...100, unit: "px")))
+                case .fontName:
+                    defs.append(def("Font", .string(style.fontName), .choice(TextFonts.common.map { .init($0, $0) })))
+                case .fontSize: defs.append(def("Size", .int(Int(style.fontSize)), .stepper(4...400, unit: "px")))
+                case .bold: defs.append(def("Bold", .bool(style.bold), .toggle))
+                case .italic: defs.append(def("Italic", .bool(style.italic), .toggle))
+                case .alignment:
+                    defs.append(def("Alignment", .string(style.alignment.rawValue), .choice(TextAlignment.allCases.map { .init($0.rawValue, $0.rawValue.capitalized) })))
                 case .opacity: defs.append(def("Opacity", .double(style.opacity), .slider(0.05...1, step: 0.05)))
                 case .dash:
                     defs.append(def("Line style", .string(style.dash.rawValue),

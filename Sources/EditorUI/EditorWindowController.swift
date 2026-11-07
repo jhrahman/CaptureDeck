@@ -262,23 +262,24 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         let id: NSToolbarItem.Identifier
         let label: String
         let symbols: [String]
+        let color: String
         let action: Selector
     }
 
     private static let entries: [ToolbarEntry] = [
-        .init(id: .cropSelection, label: "Crop to Selection", symbols: ["crop"], action: #selector(cropToSelection(_:))),
-        .init(id: .undo, label: "Undo", symbols: ["arrow.uturn.backward"], action: #selector(performUndo(_:))),
-        .init(id: .redo, label: "Redo", symbols: ["arrow.uturn.forward"], action: #selector(performRedo(_:))),
-        .init(id: .rotateLeft, label: "Rotate Left", symbols: ["rotate.left", "arrow.counterclockwise"], action: #selector(rotateLeft(_:))),
-        .init(id: .rotateRight, label: "Rotate Right", symbols: ["rotate.right", "arrow.clockwise"], action: #selector(rotateRight(_:))),
-        .init(id: .flipH, label: "Flip Horizontal", symbols: ["flip.horizontal", "arrow.left.and.right"], action: #selector(flipHorizontal(_:))),
-        .init(id: .flipV, label: "Flip Vertical", symbols: ["arrow.up.and.down"], action: #selector(flipVertical(_:))),
-        .init(id: .zoomOut, label: "Zoom Out", symbols: ["minus.magnifyingglass"], action: #selector(zoomOut(_:))),
-        .init(id: .zoomIn, label: "Zoom In", symbols: ["plus.magnifyingglass"], action: #selector(zoomIn(_:))),
-        .init(id: .zoomFit, label: "Fit to Window", symbols: ["arrow.up.left.and.down.right.magnifyingglass", "rectangle.expand.vertical"], action: #selector(zoomFit(_:))),
-        .init(id: .zoomActual, label: "Actual Size", symbols: ["1.magnifyingglass"], action: #selector(zoomActual(_:))),
-        .init(id: .copy, label: "Copy", symbols: ["doc.on.doc"], action: #selector(copyImage(_:))),
-        .init(id: .save, label: "Save", symbols: ["square.and.arrow.down"], action: #selector(saveDocument(_:))),
+        .init(id: .cropSelection, label: "Crop to Selection", symbols: ["crop"], color: ToolIcons.crop, action: #selector(cropToSelection(_:))),
+        .init(id: .undo, label: "Undo", symbols: ["arrow.uturn.backward"], color: ToolIcons.history, action: #selector(performUndo(_:))),
+        .init(id: .redo, label: "Redo", symbols: ["arrow.uturn.forward"], color: ToolIcons.history, action: #selector(performRedo(_:))),
+        .init(id: .rotateLeft, label: "Rotate Left", symbols: ["rotate.left", "arrow.counterclockwise"], color: ToolIcons.rotate, action: #selector(rotateLeft(_:))),
+        .init(id: .rotateRight, label: "Rotate Right", symbols: ["rotate.right", "arrow.clockwise"], color: ToolIcons.rotate, action: #selector(rotateRight(_:))),
+        .init(id: .flipH, label: "Flip Horizontal", symbols: ["flip.horizontal", "arrow.left.and.right"], color: ToolIcons.flip, action: #selector(flipHorizontal(_:))),
+        .init(id: .flipV, label: "Flip Vertical", symbols: ["arrow.up.and.down"], color: ToolIcons.flip, action: #selector(flipVertical(_:))),
+        .init(id: .zoomOut, label: "Zoom Out", symbols: ["minus.magnifyingglass"], color: ToolIcons.zoom, action: #selector(zoomOut(_:))),
+        .init(id: .zoomIn, label: "Zoom In", symbols: ["plus.magnifyingglass"], color: ToolIcons.zoom, action: #selector(zoomIn(_:))),
+        .init(id: .zoomFit, label: "Fit to Window", symbols: ["arrow.up.left.and.down.right.magnifyingglass", "rectangle.expand.vertical"], color: ToolIcons.zoom, action: #selector(zoomFit(_:))),
+        .init(id: .zoomActual, label: "Actual Size", symbols: ["1.magnifyingglass"], color: ToolIcons.zoom, action: #selector(zoomActual(_:))),
+        .init(id: .copy, label: "Copy", symbols: ["doc.on.doc"], color: ToolIcons.copy, action: #selector(copyImage(_:))),
+        .init(id: .save, label: "Save", symbols: ["square.and.arrow.down"], color: ToolIcons.save, action: #selector(saveDocument(_:))),
     ]
 
     private var toolbarToolGroup: NSToolbarItemGroup?
@@ -296,7 +297,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         if identifier == .tools {
             let descriptors = EditorToolRegistry.descriptors
-            let images = descriptors.map { d in NSImage(systemSymbolName: d.symbol, accessibilityDescription: d.title) ?? NSImage() }
+            let images = descriptors.map { d in ToolIcons.image(for: d) ?? NSImage() }     // each tool in its own color
             let group = NSToolbarItemGroup(itemIdentifier: identifier, images: images, selectionMode: .selectOne,
                                            labels: descriptors.map(\.title), target: self, action: #selector(chooseToolFromToolbar(_:)))
             group.label = "Tools"
@@ -311,7 +312,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         item.label = entry.label
         item.paletteLabel = entry.label
         item.toolTip = entry.label
-        item.image = entry.symbols.lazy.compactMap { NSImage(systemSymbolName: $0, accessibilityDescription: entry.label) }.first
+        item.image = ToolIcons.image(symbols: entry.symbols, color: RGBAColor(hex: entry.color) ?? .black, description: entry.label)
         item.target = self
         item.action = entry.action
         item.isBordered = true

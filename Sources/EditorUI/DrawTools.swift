@@ -158,6 +158,12 @@ final class PointerTool: EditorTool {
             state = .idle
             return
         }
+        if context.clickCount >= 2, let text = hit.shape as? TextShape {        // double-click text to edit it
+            document.selectAnnotations([hit.id])
+            context.host?.editText(annotationID: hit.id, rect: text.rect, text: text.text, style: hit.style)
+            state = .idle
+            return
+        }
         if NSEvent.modifierFlags.contains(.shift) {                       // Shift-click adds to / removes from the selection
             var ids = document.selectedAnnotationIDs
             if let index = ids.firstIndex(of: hit.id) { ids.remove(at: index); document.selectAnnotations(ids); state = .idle; return }
@@ -232,4 +238,103 @@ extension SelectionHandle {
         case .move: CGPoint(x: rect.midX, y: rect.midY)
         }
     }
+}
+
+// MARK: - Step numbers and letters
+
+@MainActor
+final class StepTool: EditorTool {
+    let descriptor: EditorToolDescriptor
+    private let letters: Bool
+
+    init(_ descriptor: EditorToolDescriptor, letters: Bool) {
+        self.descriptor = descriptor
+        self.letters = letters
+    }
+
+    func cursor(at point: CGPoint, context: ToolContext) -> NSCursor { .crosshair }
+
+    /// One more than the highest step of this kind already on the picture (so deleting the last one reuses its number).
+    private func nextNumber(in document: EditorDocument) -> Int {
+        let numbers = document.annotations.compactMap { ($0.shape as? StepShape).flatMap { $0.letters == letters ? $0.number : nil } }
+        return (numbers.max() ?? 0) + 1
+    }
+
+    func mouseDown(at point: CGPoint, context: ToolContext) {}
+    func mouseDragged(to point: CGPoint, context: ToolContext) {}
+
+    func mouseUp(at point: CGPoint, context: ToolContext) {
+        let radius = CGFloat(context.style.fontSize) * 0.9
+        let shape = StepShape(center: point, radius: radius, number: nextNumber(in: context.document), letters: letters)
+        context.document.addAnnotation(Annotation(shape: shape, style: context.style))
+    }
+
+    func keyDown(_ event: NSEvent, context: ToolContext) -> Bool {
+        guard event.keyCode == 53 else { return false }
+        context.document.clearAnnotationSelection()
+        return true
+    }
+
+    func deactivate() {}
+}
+
+// MARK: - Text
+
+@MainActor
+final class TextTool: EditorTool {
+    let descriptor = EditorToolRegistry.text
+    private var start: CGPoint?
+    private var current = CGPoint.zero
+    private var style = AnnotationStyle.default
+
+    static let defaultWidth: CGFloat = 300
+    static let minimumWidth: CGFloat = 60
+
+    var previewAnnotations: [Annotation] {
+        guard let start, hypot(current.x - start.x, current.y - start.y) > 4 else { return [] }
+        let outline = AnnotationStyle(strokeColor: style.strokeColor, lineWidth: 2, dash: .dashed)
+        return [Annotation(shape: RectangleShape(rect: ShapeDragTool.rect(start, current, square: false)), style: outline)]
+    }
+
+    func cursor(at point: CGPoint, context: ToolContext) -> NSCursor { .iBeam }
+
+    func mouseDown(at point: CGPoint, context: ToolContext) {
+        style = context.style
+        // Clicking existing text edits it instead of starting a new box.
+        if let hit = context.document.annotation(at: point, tolerance: context.imagePixels(forScreenPoints: 4)),
+           let text = hit.shape as? TextShape {
+            context.document.selectAnnotations([hit.id])
+            context.host?.editText(annotationID: hit.id, rect: text.rect, text: text.text, style: hit.style)
+            start = nil
+            return
+        }
+        start = point
+        current = point
+    }
+
+    func mouseDragged(to point: CGPoint, context: ToolContext) {
+        guard start != nil else { return }
+        current = point
+    }
+
+    func mouseUp(at point: CGPoint, context: ToolContext) {
+        defer { start = nil }
+        guard let start else { return }
+        let dragged = ShapeDragTool.rect(start, point, square: false)
+        let box: CGRect
+        if dragged.width >= Self.minimumWidth {
+            box = CGRect(x: dragged.minX, y: dragged.minY, width: dragged.width, height: max(dragged.height, 1))
+        } else {
+            box = CGRect(x: start.x, y: start.y, width: Self.defaultWidth, height: 1)     // a click: default-width box
+        }
+        context.host?.editText(annotationID: nil, rect: box, text: "", style: style)
+    }
+
+    func keyDown(_ event: NSEvent, context: ToolContext) -> Bool {
+        guard event.keyCode == 53 else { return false }
+        if start != nil { start = nil } else { context.document.clearAnnotationSelection() }
+        return true
+    }
+
+    func deactivate() { start = nil }
 }

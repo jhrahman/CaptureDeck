@@ -10,9 +10,19 @@ struct ToolContext {
     let zoom: CGFloat
     /// The look new shapes get from the active tool (from Settings, or the properties bar).
     let style: AnnotationStyle
+    /// Lets a tool ask the editor for things only the editor can do (like opening the text editor).
+    var host: (any ToolHost)?
+    /// 1 for a single click, 2 for a double-click.
+    var clickCount = 1
 
     /// A distance measured in screen points, expressed in image pixels.
     func imagePixels(forScreenPoints points: CGFloat) -> CGFloat { points / max(zoom, 0.0001) * (NSScreen.main?.backingScaleFactor ?? 2) }
+}
+
+@MainActor
+protocol ToolHost: AnyObject {
+    /// Opens the inline text editor over `rect` (image pixels). `annotationID` is set when editing existing text.
+    func editText(annotationID: UUID?, rect: CGRect, text: String, style: AnnotationStyle)
 }
 
 /// A tool the user can pick. Tools are added by registering them in `EditorToolRegistry`; the toolbar, the Tools menu,
@@ -41,6 +51,7 @@ extension EditorTool {
 /// A look setting the properties bar can show for a tool.
 public enum StyleProperty: String, Sendable, CaseIterable {
     case stroke, fill, width, opacity, dash, cornerRadius
+    case fontName, fontSize, bold, italic, alignment
 }
 
 public struct EditorToolDescriptor: Sendable, Identifiable, Equatable {
@@ -56,9 +67,16 @@ public struct EditorToolDescriptor: Sendable, Identifiable, Equatable {
     public let styleProperties: [StyleProperty]
     /// What new shapes look like until the user changes it.
     public let defaultStyle: AnnotationStyle
+    /// Names for properties where "Color" / "Fill" would be unclear (a step's circle and number, a text's background).
+    public let propertyTitles: [StyleProperty: String]
+    /// Color of the tool's icon in the toolbar and menus, so tools are easy to tell apart at a glance.
+    public let iconColor: RGBAColor
 
     init(id: String, title: String, symbol: String, key: String, kind: Kind = .pixelSelection,
-         styleProperties: [StyleProperty] = [], defaultStyle: AnnotationStyle = .default) {
+         styleProperties: [StyleProperty] = [], defaultStyle: AnnotationStyle = .default, iconColor: String = "#8E9AAF",
+         propertyTitles: [StyleProperty: String] = [:]) {
+        self.propertyTitles = propertyTitles
+        self.iconColor = RGBAColor(hex: iconColor) ?? .black
         self.id = id
         self.title = title
         self.symbol = symbol
@@ -75,34 +93,53 @@ public enum EditorToolRegistry {
 
     public static let pointer = EditorToolDescriptor(
         id: "pointer", title: "Select Object", symbol: "cursorarrow", key: "v", kind: .object,
-        styleProperties: StyleProperty.allCases)
-    public static let rectangleSelect = EditorToolDescriptor(id: "selectRect", title: "Rectangle Select", symbol: "rectangle.dashed", key: "s")
-    public static let freehandSelect = EditorToolDescriptor(id: "selectFreehand", title: "Freehand Select", symbol: "lasso", key: "f")
+        styleProperties: StyleProperty.allCases, iconColor: "#5B9DFF")
+    public static let rectangleSelect = EditorToolDescriptor(id: "selectRect", title: "Rectangle Select", symbol: "rectangle.dashed", key: "s", iconColor: "#30B0C7")
+    public static let freehandSelect = EditorToolDescriptor(id: "selectFreehand", title: "Freehand Select", symbol: "lasso", key: "f", iconColor: "#AF7BFF")
     public static let rectangle = EditorToolDescriptor(
-        id: "rectangle", title: "Rectangle", symbol: "rectangle", key: "r", kind: .draw, styleProperties: outline)
+        id: "rectangle", title: "Rectangle", symbol: "rectangle", key: "r", kind: .draw, styleProperties: outline, iconColor: "#FF5A4F")
     public static let roundedRectangle = EditorToolDescriptor(
         id: "roundedRectangle", title: "Rounded Rectangle", symbol: "rectangle.roundedtop", key: "u", kind: .draw,
-        styleProperties: outline + [.cornerRadius], defaultStyle: AnnotationStyle(strokeColor: AnnotationStyle.defaultStroke, cornerRadius: 24))
+        styleProperties: outline + [.cornerRadius], defaultStyle: AnnotationStyle(strokeColor: AnnotationStyle.defaultStroke, cornerRadius: 24), iconColor: "#FF9F0A")
     public static let ellipse = EditorToolDescriptor(
-        id: "ellipse", title: "Ellipse", symbol: "circle", key: "o", kind: .draw, styleProperties: outline)
+        id: "ellipse", title: "Ellipse", symbol: "circle", key: "o", kind: .draw, styleProperties: outline, iconColor: "#34C759")
     public static let line = EditorToolDescriptor(
-        id: "line", title: "Line", symbol: "line.diagonal", key: "l", kind: .draw, styleProperties: [.stroke, .width, .opacity, .dash])
+        id: "line", title: "Line", symbol: "line.diagonal", key: "l", kind: .draw, styleProperties: [.stroke, .width, .opacity, .dash], iconColor: "#64D2FF")
     public static let arrow = EditorToolDescriptor(
         id: "arrow", title: "Arrow", symbol: "arrow.up.right", key: "a", kind: .draw, styleProperties: [.stroke, .width, .opacity, .dash],
-        defaultStyle: AnnotationStyle(strokeColor: AnnotationStyle.defaultStroke, lineWidth: 5))
+        defaultStyle: AnnotationStyle(strokeColor: AnnotationStyle.defaultStroke, lineWidth: 5), iconColor: "#FF375F")
     public static let doubleArrow = EditorToolDescriptor(
         id: "doubleArrow", title: "Double Arrow", symbol: "arrow.left.and.right", key: "d", kind: .draw,
-        styleProperties: [.stroke, .width, .opacity, .dash], defaultStyle: AnnotationStyle(strokeColor: AnnotationStyle.defaultStroke, lineWidth: 5))
+        styleProperties: [.stroke, .width, .opacity, .dash], defaultStyle: AnnotationStyle(strokeColor: AnnotationStyle.defaultStroke, lineWidth: 5),
+        iconColor: "#BF5AF2")
     public static let pencil = EditorToolDescriptor(
         id: "pencil", title: "Pencil", symbol: "pencil", key: "p", kind: .draw, styleProperties: [.stroke, .width, .opacity],
-        defaultStyle: AnnotationStyle(strokeColor: AnnotationStyle.defaultStroke, lineWidth: 5))
+        defaultStyle: AnnotationStyle(strokeColor: AnnotationStyle.defaultStroke, lineWidth: 5), iconColor: "#D9A441")
     public static let highlighter = EditorToolDescriptor(
         id: "highlighter", title: "Highlighter", symbol: "highlighter", key: "h", kind: .draw, styleProperties: [.stroke, .opacity],
-        defaultStyle: AnnotationStyle(strokeColor: marker, lineWidth: 0, opacity: 0.6))
+        defaultStyle: AnnotationStyle(strokeColor: marker, lineWidth: 0, opacity: 0.6), iconColor: "#F2E94E")
+
+    private static let white = RGBAColor.white
+    public static let text = EditorToolDescriptor(
+        id: "text", title: "Text", symbol: "textformat", key: "t", kind: .draw,
+        styleProperties: [.stroke, .fill, .width, .fontName, .fontSize, .bold, .italic, .alignment, .opacity],
+        defaultStyle: AnnotationStyle(strokeColor: AnnotationStyle.defaultStroke, lineWidth: 0, fontSize: 32),
+        iconColor: "#0A84FF", propertyTitles: [.stroke: "Text", .fill: "Background", .width: "Border"])
+    public static let step = EditorToolDescriptor(
+        id: "step", title: "Step Number", symbol: "number.circle.fill", key: "n", kind: .draw,
+        styleProperties: [.fill, .stroke, .fontSize, .opacity],
+        defaultStyle: AnnotationStyle(strokeColor: white, fillColor: AnnotationStyle.defaultStroke, lineWidth: 0, fontSize: 28),
+        iconColor: "#FF453A", propertyTitles: [.fill: "Circle", .stroke: "Number", .fontSize: "Size"])
+    public static let stepLetter = EditorToolDescriptor(
+        id: "stepLetter", title: "Step Letter", symbol: "a.circle.fill", key: "k", kind: .draw,
+        styleProperties: [.fill, .stroke, .fontSize, .opacity],
+        defaultStyle: AnnotationStyle(strokeColor: white, fillColor: RGBAColor(hex: "#0A84FFFF") ?? .black, lineWidth: 0, fontSize: 28),
+        iconColor: "#5E5CE6", propertyTitles: [.fill: "Circle", .stroke: "Letter", .fontSize: "Size"])
 
     /// Every tool, in toolbar order.
     public static let descriptors: [EditorToolDescriptor] = [
         pointer, rectangleSelect, freehandSelect, rectangle, roundedRectangle, ellipse, line, arrow, doubleArrow, pencil, highlighter,
+        text, step, stepLetter,
     ]
     public static var defaultToolID: String { rectangleSelect.id }
 
@@ -120,6 +157,9 @@ public enum EditorToolRegistry {
             ShapeDragTool(doubleArrow) { a, b, snap in LineShape(start: a, end: ShapeDragTool.end(a, b, snap: snap), startHead: .filled, endHead: .filled) },
             PencilTool(),
             ShapeDragTool(highlighter) { a, b, square in HighlighterShape(rect: ShapeDragTool.rect(a, b, square: square)) },
+            TextTool(),
+            StepTool(step, letters: false),
+            StepTool(stepLetter, letters: true),
         ]
     }
 }
@@ -141,6 +181,11 @@ public enum ToolStyleSetting {
             case .opacity: style.opacity = min(max(settings.double(key), 0), 1)
             case .dash: style.dash = DashStyle(rawValue: settings.string(key)) ?? style.dash
             case .cornerRadius: style.cornerRadius = Double(settings.int(key))
+            case .fontName: style.fontName = settings.string(key)
+            case .fontSize: style.fontSize = Double(settings.int(key))
+            case .bold: style.bold = settings.bool(key)
+            case .italic: style.italic = settings.bool(key)
+            case .alignment: style.alignment = TextAlignment(rawValue: settings.string(key)) ?? style.alignment
             }
         }
         return style
@@ -158,6 +203,11 @@ public enum ToolStyleSetting {
             case .opacity: settings.set(style.opacity, for: key)
             case .dash: settings.set(style.dash.rawValue, for: key)
             case .cornerRadius: settings.set(Int(style.cornerRadius.rounded()), for: key)
+            case .fontName: settings.set(style.fontName, for: key)
+            case .fontSize: settings.set(Int(style.fontSize.rounded()), for: key)
+            case .bold: settings.set(style.bold, for: key)
+            case .italic: settings.set(style.italic, for: key)
+            case .alignment: settings.set(style.alignment.rawValue, for: key)
             }
         }
     }

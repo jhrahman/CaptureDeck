@@ -11,6 +11,8 @@ final class ToolOptionsModel: ObservableObject {
     @Published var style = AnnotationStyle.default
     /// How many objects are selected (enables the object buttons).
     @Published var selectionCount = 0
+    /// Tool-specific names for properties ("Circle" / "Number" for steps).
+    @Published var titles: [StyleProperty: String] = [:]
     /// Shown instead of controls when there is nothing to edit yet.
     @Published var hint: String?
 
@@ -20,6 +22,8 @@ final class ToolOptionsModel: ObservableObject {
 
     enum ObjectAction { case duplicate, delete, bringToFront, sendToBack }
 
+    func title(_ property: StyleProperty, default fallback: String) -> String { titles[property] ?? fallback }
+
     func edit(_ change: (inout AnnotationStyle) -> Void) {
         var new = style
         change(&new)
@@ -28,6 +32,9 @@ final class ToolOptionsModel: ObservableObject {
         onStyleEdited?(new)
     }
 }
+
+/// SwiftUI also has a `TextAlignment`; this one is ours.
+private typealias Align = EditorEngine.TextAlignment
 
 private func swiftUIColor(_ c: RGBAColor) -> Color { Color(.sRGB, red: c.red, green: c.green, blue: c.blue, opacity: c.alpha) }
 
@@ -75,13 +82,13 @@ struct ToolOptionsView: View {
     @ViewBuilder private func control(for property: StyleProperty) -> some View {
         switch property {
         case .stroke:
-            labelled("Color") {
+            labelled(model.title(.stroke, default: "Color")) {
                 ColorPicker("Color", selection: Binding(get: { swiftUIColor(model.style.strokeColor) },
                                                         set: { c in model.edit { $0.strokeColor = rgba(c) } }), supportsOpacity: true)
                     .labelsHidden()
             }
         case .fill:
-            labelled("Fill") {
+            labelled(model.title(.fill, default: "Fill")) {
                 ColorPicker("Fill", selection: Binding(get: { swiftUIColor(model.style.fillColor) },
                                                        set: { c in model.edit { $0.fillColor = rgba(c) } }), supportsOpacity: true)
                     .labelsHidden()
@@ -89,7 +96,7 @@ struct ToolOptionsView: View {
                     .buttonStyle(.borderless).help("No fill").opacity(model.style.fillColor.alpha > 0 ? 1 : 0.3)
             }
         case .width:
-            labelled("Width") {
+            labelled(model.title(.width, default: "Width")) {
                 Slider(value: Binding(get: { model.style.lineWidth }, set: { v in model.edit { $0.lineWidth = v.rounded() } }), in: 1...40)
                     .frame(width: 90)
                 Text("\(Int(model.style.lineWidth))").monospacedDigit().frame(width: 22, alignment: .trailing).font(.caption)
@@ -109,6 +116,33 @@ struct ToolOptionsView: View {
                 }
                 .labelsHidden().frame(width: 84)
             }
+        case .fontName:
+            labelled("Font") {
+                let fonts = TextFonts.common.contains(model.style.fontName) ? TextFonts.common : [model.style.fontName] + TextFonts.common
+                Picker("Font", selection: Binding(get: { model.style.fontName }, set: { v in model.edit { $0.fontName = v } })) {
+                    ForEach(fonts, id: \.self) { Text($0).tag($0) }
+                }
+                .labelsHidden().frame(width: 130)
+            }
+        case .fontSize:
+            labelled(model.title(.fontSize, default: "Size")) {
+                Slider(value: Binding(get: { model.style.fontSize }, set: { v in model.edit { $0.fontSize = v.rounded() } }), in: 8...200)
+                    .frame(width: 90)
+                Text("\(Int(model.style.fontSize))").monospacedDigit().frame(width: 28, alignment: .trailing).font(.caption)
+            }
+        case .bold:
+            Toggle(isOn: Binding(get: { model.style.bold }, set: { v in model.edit { $0.bold = v } })) { Image(systemName: "bold") }
+                .toggleStyle(.button).help("Bold").accessibilityLabel("Bold")
+        case .italic:
+            Toggle(isOn: Binding(get: { model.style.italic }, set: { v in model.edit { $0.italic = v } })) { Image(systemName: "italic") }
+                .toggleStyle(.button).help("Italic").accessibilityLabel("Italic")
+        case .alignment:
+            Picker("Alignment", selection: Binding(get: { model.style.alignment }, set: { v in model.edit { $0.alignment = v } })) {
+                Image(systemName: "text.alignleft").tag(Align.left).accessibilityLabel("Align left")
+                Image(systemName: "text.aligncenter").tag(Align.center).accessibilityLabel("Align center")
+                Image(systemName: "text.alignright").tag(Align.right).accessibilityLabel("Align right")
+            }
+            .pickerStyle(.segmented).labelsHidden().frame(width: 96)
         case .cornerRadius:
             labelled("Corners") {
                 Slider(value: Binding(get: { model.style.cornerRadius }, set: { v in model.edit { $0.cornerRadius = v.rounded() } }), in: 0...100)

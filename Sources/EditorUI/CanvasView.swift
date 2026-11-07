@@ -21,6 +21,8 @@ final class CanvasView: NSView {
     var annotations: [Annotation] = [] { didSet { needsDisplay = true } }
     var selectedAnnotationIDs: [UUID] = [] { didSet { needsDisplay = true } }
     var previewProvider: (() -> [Annotation])?
+    /// Annotations not drawn right now (the text being edited is shown by the inline editor instead).
+    var hiddenAnnotationIDs: Set<UUID> = [] { didSet { needsDisplay = true } }
     var toolContext: (() -> ToolContext)?
     var activeTool: (any EditorTool)?
     var onToolKey: ((String) -> Bool)?       // single-letter tool switching
@@ -51,7 +53,8 @@ final class CanvasView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
-        guard let tool = activeTool, let context = toolContext?() else { return }
+        guard let tool = activeTool, var context = toolContext?() else { return }
+        context.clickCount = event.clickCount
         tool.mouseDown(at: imagePoint(event), context: context)
     }
 
@@ -93,7 +96,7 @@ final class CanvasView: NSView {
         context.restoreGState()
 
         // Annotations sit on top of the picture, in order (the view is flipped, so image pixels draw as they are).
-        AnnotationRenderer.draw(annotations, in: context)
+        AnnotationRenderer.draw(hiddenAnnotationIDs.isEmpty ? annotations : annotations.filter { !hiddenAnnotationIDs.contains($0.id) }, in: context)
         if let preview = previewProvider?(), !preview.isEmpty { AnnotationRenderer.draw(preview, in: context) }
         drawObjectSelection(in: context)
 

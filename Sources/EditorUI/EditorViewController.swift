@@ -7,7 +7,7 @@ import SwiftUI
 
 /// The editor's content: the zoomable canvas and a status bar.
 @MainActor
-final class EditorViewController: NSViewController {
+final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate {
     let document: EditorDocument
     let scrollView = ZoomScrollView(frame: .zero)
     private let canvas = CanvasView(frame: .zero)
@@ -19,6 +19,7 @@ final class EditorViewController: NSViewController {
     /// Called when the active tool changes (to keep the toolbar in step).
     var onToolChanged: ((EditorToolDescriptor) -> Void)?
     private let optionsModel = ToolOptionsModel()
+    private var textEditor: (view: NSTextView, annotationID: UUID?, rect: CGRect, style: AnnotationStyle)?
     private var optionsBar: NSHostingView<ToolOptionsView>?
     private var optionsHeight: NSLayoutConstraint?
     /// A burst of style edits (dragging a slider) becomes one undo step, committed shortly after the last edit.
@@ -90,7 +91,7 @@ final class EditorViewController: NSViewController {
             guard let self else { return ToolContext(document: EditorDocument(original: .placeholder, title: ""), zoom: 1, style: .default) }
             return ToolContext(document: self.document,
                                zoom: self.scrollView.magnification * (self.view.window?.backingScaleFactor ?? 2),
-                               style: self.currentToolStyle())
+                               style: self.currentToolStyle(), host: self)
         }
         canvas.previewProvider = { [weak self] in self?.activeTool.previewAnnotations ?? [] }
         canvas.onToolKey = { [weak self] key in self?.selectTool(key: key) ?? false }
@@ -144,6 +145,7 @@ final class EditorViewController: NSViewController {
     // MARK: Tools
 
     func selectTool(id: String) {
+        finishTextEditing()
         guard let tool = tools.first(where: { $0.descriptor.id == id }), tool !== activeTool else { return }
         activeTool.deactivate()
         activeTool = tool
@@ -151,6 +153,79 @@ final class EditorViewController: NSViewController {
         onToolChanged?(tool.descriptor)
         syncOptions()
         canvas.needsDisplay = true
+    }
+
+    // MARK: Inline text editing
+
+    func editText(annotationID: UUID?, rect: CGRect, text: String, style: AnnotationStyle) {
+        finishTextEditing()
+        let pad = TextRenderer.padding
+        var font = NSFont(name: style.fontName, size: CGFloat(style.fontSize)) ?? .systemFont(ofSize: CGFloat(style.fontSize))
+        if style.bold { font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask) }
+        if style.italic { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
+
+        let field = NSTextView(frame: NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: max(rect.height, font.boundingRectForFont.height + 2 * pad)))
+        field.font = font
+        field.textColor = NSColor(srgbRed: style.strokeColor.red, green: style.strokeColor.green, blue: style.strokeColor.blue, alpha: 1)
+        field.insertionPointColor = field.textColor ?? .black
+        field.alignment = style.alignment == .center ? .center : (style.alignment == .right ? .right : .left)
+        field.drawsBackground = true
+        field.backgroundColor = style.fillColor.alpha > 0
+            ? NSColor(srgbRed: style.fillColor.red, green: style.fillColor.green, blue: style.fillColor.blue, alpha: style.fillColor.alpha)
+            : NSColor(white: 0.5, alpha: 0.15)                       // a faint tint so an empty box is visible
+        field.textContainerInset = NSSize(width: pad, height: pad)
+        field.textContainer?.lineFragmentPadding = 0
+        field.textContainer?.widthTracksTextView = true
+        field.isRichText = false
+        field.allowsUndo = true
+        field.isVerticallyResizable = true
+        field.isHorizontallyResizable = false
+        field.autoresizingMask = []
+        field.delegate = self
+        field.string = text
+        field.wantsLayer = true
+        field.layer?.borderColor = NSColor.systemBlue.cgColor
+        field.layer?.borderWidth = 1 / max(scrollView.magnification, 0.01)
+
+        textEditor = (field, annotationID, rect, style)
+        canvas.hiddenAnnotationIDs = annotationID.map { [$0] } ?? []
+        canvas.addSubview(field)
+        view.window?.makeFirstResponder(field)
+        field.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
+    }
+
+    /// Turns what was typed into (or back into) a text annotation, then removes the editor.
+    func finishTextEditing() {
+        guard let editor = textEditor else { return }
+        textEditor = nil                                  // first, so losing focus below cannot finish twice
+        let content = editor.view.string
+        editor.view.removeFromSuperview()
+        canvas.hiddenAnnotationIDs = []
+        view.window?.makeFirstResponder(canvas)
+
+        let isEmpty = content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if let id = editor.annotationID, let existing = document.annotation(withID: id) {
+            if isEmpty {
+                document.removeAnnotations(ids: [id])
+            } else {
+                let box = TextShape.fittingRect(origin: editor.rect.origin, width: editor.rect.width, text: content, style: existing.style)
+                document.updateAnnotations([Annotation(id: id, shape: TextShape(rect: box, text: content), style: existing.style)], name: "Edit Text")
+            }
+        } else if !isEmpty {
+            let box = TextShape.fittingRect(origin: editor.rect.origin, width: editor.rect.width, text: content, style: editor.style)
+            document.addAnnotation(Annotation(shape: TextShape(rect: box, text: content), style: editor.style))
+        }
+    }
+
+    func textDidEndEditing(_ notification: Notification) { finishTextEditing() }
+
+    /// Esc finishes the text (keeps it); a plain Return starts a new line.
+    func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        if selector == #selector(NSResponder.cancelOperation(_:)) {
+            finishTextEditing()
+            return true
+        }
+        return false
     }
 
     // MARK: Properties bar
@@ -169,10 +244,11 @@ final class EditorViewController: NSViewController {
         let descriptor = activeTool.descriptor
 
         optionsModel.selectionCount = selected.count
+        optionsModel.titles = descriptor.propertyTitles
         optionsModel.hint = nil
         if let first = selected.first {
             // Editing objects: show (and change) their look.
-            optionsModel.properties = descriptor.kind == .draw ? descriptor.styleProperties : StyleProperty.allCases
+            optionsModel.properties = descriptor.kind == .draw ? descriptor.styleProperties : StyleProperty.allCases.filter { $0 != .fontName }
             optionsModel.style = first.style
             optionsModel.title = selected.count == 1 ? "Selected" : "\(selected.count) selected"
         } else if descriptor.kind == .draw {
@@ -213,6 +289,11 @@ final class EditorViewController: NSViewController {
             if !offered.contains(.opacity) { look.opacity = changed[index].style.opacity }
             if !offered.contains(.dash) { look.dash = changed[index].style.dash }
             if !offered.contains(.cornerRadius) { look.cornerRadius = changed[index].style.cornerRadius }
+            if !offered.contains(.fontName) { look.fontName = changed[index].style.fontName }
+            if !offered.contains(.fontSize) { look.fontSize = changed[index].style.fontSize }
+            if !offered.contains(.bold) { look.bold = changed[index].style.bold }
+            if !offered.contains(.italic) { look.italic = changed[index].style.italic }
+            if !offered.contains(.alignment) { look.alignment = changed[index].style.alignment }
             changed[index].style = look
         }
         document.previewAnnotations(changed)

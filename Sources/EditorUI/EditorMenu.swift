@@ -76,6 +76,7 @@ enum EditorMenu {
         for descriptor in EditorToolRegistry.descriptors {
             let item = NSMenuItem(title: "\(descriptor.title)  (\(descriptor.key.uppercased()))", action: Selector(("chooseTool:")), keyEquivalent: "")
             item.representedObject = descriptor.id
+            item.image = ToolIcons.image(for: descriptor, pointSize: 13)
             tools.addItem(item)
         }
 

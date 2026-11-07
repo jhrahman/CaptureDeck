@@ -18,6 +18,8 @@ final class AddAnnotationsCommand: EditorCommand {
         case "line": "Line"
         case "pencil": "Drawing"
         case "highlighter": "Highlight"
+        case "text": "Text"
+        case "step": "Step"
         default: "Annotation"
         }
     }
