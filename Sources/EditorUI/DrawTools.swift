@@ -125,11 +125,23 @@ final class PointerTool: EditorTool {
 
     private enum State {
         case idle
+        case marquee(from: CGPoint, additive: [UUID])
         case tail(original: Annotation, index: Int)
         case moving(from: CGPoint, originals: [Annotation])
         case resizing(handle: SelectionHandle, startBounds: CGRect, originals: [Annotation])
     }
     private var state = State.idle
+    /// The rubber band while dragging on empty space.
+    private var band: CGRect?
+    var previewAnnotations: [Annotation] {
+        guard let band else { return [] }
+        var look = AnnotationStyle.default
+        look.strokeColor = RGBAColor(red: 0.2, green: 0.5, blue: 1, alpha: 1)
+        look.fillColor = RGBAColor(red: 0.2, green: 0.5, blue: 1, alpha: 0.12)
+        look.lineWidth = 1
+        look.dash = .dashed
+        return [Annotation(shape: RectangleShape(rect: band), style: look)]
+    }
     static func snapped(_ point: CGPoint, around anchor: CGPoint) -> CGPoint {
         let dx = point.x - anchor.x, dy = point.y - anchor.y
         let length = hypot(dx, dy)
@@ -186,8 +198,10 @@ final class PointerTool: EditorTool {
             return
         }
         guard let hit = document.annotation(at: point, tolerance: context.imagePixels(forScreenPoints: 5)) else {
-            document.clearAnnotationSelection()
-            state = .idle
+            // Empty space: drag to rubber-band several objects. Shift keeps the current selection and adds to it.
+            let keep = NSEvent.modifierFlags.contains(.shift) ? document.selectedAnnotationIDs : []
+            if keep.isEmpty { document.clearAnnotationSelection() }
+            state = .marquee(from: point, additive: keep)
             return
         }
         if context.clickCount >= 2 {                                            // double-click text or a bubble to edit it
@@ -219,6 +233,11 @@ final class PointerTool: EditorTool {
         let document = context.document
         switch state {
         case .idle: break
+        case .marquee(let from, let keep):
+            let rect = CGRect(x: min(from.x, point.x), y: min(from.y, point.y), width: abs(point.x - from.x), height: abs(point.y - from.y))
+            band = rect
+            let inside = document.annotations.filter { $0.bounds.intersects(rect) }.map(\.id)
+            document.selectAnnotations(keep + inside.filter { !keep.contains($0) })
         case .tail(let original, let index):
             var target = point
             // Shift snaps a line to 0°, 45°, 90°… around its other end.
@@ -238,9 +257,9 @@ final class PointerTool: EditorTool {
     }
 
     func mouseUp(at point: CGPoint, context: ToolContext) {
-        defer { state = .idle }
+        defer { state = .idle; band = nil }
         switch state {
-        case .idle: break
+        case .idle, .marquee: break
         case .tail(let original, _): context.document.commitAnnotationEdit(from: [original], name: "Move Tail")
         case .moving(_, let originals): context.document.commitAnnotationEdit(from: originals, name: "Move")
         case .resizing(_, _, let originals): context.document.commitAnnotationEdit(from: originals, name: "Resize")
@@ -269,7 +288,7 @@ final class PointerTool: EditorTool {
         }
     }
 
-    func deactivate() { state = .idle }
+    func deactivate() { state = .idle; band = nil }
 }
 
 extension SelectionHandle {

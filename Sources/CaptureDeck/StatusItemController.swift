@@ -67,6 +67,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(pasteImage)
         let showEditors = NSMenuItem(title: "Show Editor", action: #selector(showOpenEditors), keyEquivalent: "")
         showEditors.target = self
+        showEditors.tag = 77
         menu.addItem(showEditors)
         menu.addItem(.separator())
 
@@ -98,7 +99,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
-        menu.item(withTitle: "Show Editor")?.isEnabled = editor.hasOpenEditors
+        menu.item(withTag: 77)?.title = editor.hasOpenEditors ? "Show Editor" : "Open Editor"
         toggleItem?.title = panel.isVisible ? "Hide Capture Panel" : "Show Capture Panel"
     }
 

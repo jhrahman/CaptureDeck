@@ -17,12 +17,15 @@ final class ToolOptionsModel: ObservableObject {
     @Published var hint: String?
     /// True when the controls do not fit on one line, so the bar grows to two.
     @Published var wraps = false
+    /// Shown for the area-selection tools: the selected rectangle in pixels (nil = nothing selected).
+    @Published var areaSelection: CGRect?
+    @Published var isAreaTool = false
 
     /// Called whenever the user changes something in the bar.
     var onStyleEdited: ((AnnotationStyle) -> Void)?
     var onAction: ((ObjectAction) -> Void)?
 
-    enum ObjectAction { case duplicate, delete, bringToFront, sendToBack }
+    enum ObjectAction { case duplicate, delete, bringToFront, sendToBack, crop, copyArea, deselectArea, selectAllArea }
 
     func title(_ property: StyleProperty, default fallback: String) -> String { titles[property] ?? fallback }
 
@@ -54,7 +57,7 @@ struct ToolOptionsView: View {
             controlsBody
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(widthProbe(ideal: true))
-            if model.selectionCount > 0 {
+            if model.selectionCount > 0 && !model.isAreaTool {
                 HStack(spacing: 2) {
                     iconButton("plus.square.on.square", "Duplicate (⌘J)") { model.onAction?(.duplicate) }
                     iconButton("square.3.layers.3d.top.filled", "Bring to Front") { model.onAction?(.bringToFront) }
@@ -98,6 +101,27 @@ struct ToolOptionsView: View {
         }
     }
 
+    private var areaBar: some View {
+        HStack(spacing: 10) {
+            Text(model.title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+            if let r = model.areaSelection {
+                Text("\(Int(r.width)) × \(Int(r.height)) px  at  \(Int(r.minX)), \(Int(r.minY))")
+                    .font(.system(size: 12)).monospacedDigit().foregroundStyle(.secondary)
+                actionButton("crop", "Crop") { model.onAction?(.crop) }
+                actionButton("doc.on.doc", "Copy") { model.onAction?(.copyArea) }
+                actionButton("xmark.circle", "Deselect") { model.onAction?(.deselectArea) }
+            } else {
+                Text("Drag on the picture to choose an area, then crop or copy it.").font(.caption).foregroundStyle(.secondary)
+            }
+            actionButton("rectangle.dashed", "Select All") { model.onAction?(.selectAllArea) }
+        }
+    }
+
+    private func actionButton(_ symbol: String, _ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) { Label(title, systemImage: symbol).font(.system(size: 12)) }
+            .buttonStyle(.bordered).controlSize(.small)
+    }
+
     @ViewBuilder private var controlsBody: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let hint = model.hint, model.properties.isEmpty {
@@ -106,6 +130,8 @@ struct ToolOptionsView: View {
                     Text(hint).font(.caption).foregroundStyle(.secondary)
                 }
                 .frame(height: 38)
+            } else if model.isAreaTool {
+                areaBar.frame(height: 38)
             } else if model.wraps {
                 WrapLayout(spacing: 10, rowSpacing: 4) {
                     Text(model.title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)

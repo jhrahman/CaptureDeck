@@ -189,3 +189,25 @@ struct LineEditingTests {
         #expect((doc.annotations[0].shape as? LineShape)?.start == CGPoint(x: 101, y: 100))
     }
 }
+
+@MainActor
+struct MarqueeTests {
+    @Test func draggingOnEmptySpaceSelectsEveryObjectItTouches() {
+        let doc = EditorDocument(original: UXSnapshotTests.sampleImage(), title: "t")
+        let a = Annotation(shape: RectangleShape(rect: CGRect(x: 100, y: 100, width: 50, height: 50)), style: .default)
+        let b = Annotation(shape: RectangleShape(rect: CGRect(x: 300, y: 100, width: 50, height: 50)), style: .default)
+        let far = Annotation(shape: RectangleShape(rect: CGRect(x: 900, y: 600, width: 50, height: 50)), style: .default)
+        for item in [a, b, far] { doc.addAnnotation(item) }
+        doc.clearAnnotationSelection()
+        let tool = PointerTool()
+        let ctx = ToolContext(document: doc, zoom: 1, style: .default)
+        tool.mouseDown(at: CGPoint(x: 50, y: 50), context: ctx)
+        tool.mouseDragged(to: CGPoint(x: 400, y: 200), context: ctx)
+        #expect(Set(doc.selectedAnnotationIDs) == [a.id, b.id])
+        #expect(tool.previewAnnotations.count == 1)
+        tool.mouseUp(at: CGPoint(x: 400, y: 200), context: ctx)
+        #expect(tool.previewAnnotations.isEmpty)
+        #expect(Set(doc.selectedAnnotationIDs) == [a.id, b.id])
+        #expect(doc.undoNames == ["Add Rectangle", "Add Rectangle", "Add Rectangle"])    // selecting is not an edit
+    }
+}

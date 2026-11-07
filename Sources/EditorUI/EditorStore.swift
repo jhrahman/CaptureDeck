@@ -67,11 +67,24 @@ public final class EditorStore: NSObject {
     /// Brings every open editor window to the front. Returns false if there are none.
     @discardableResult
     public func showEditors() -> Bool {
-        guard !controllers.isEmpty else { return false }
+        guard !controllers.isEmpty else { openBlank(); return false }
         NSApp.activate(ignoringOtherApps: true)
         for controller in controllers { controller.window?.orderFrontRegardless() }
         controllers.last?.window?.makeKeyAndOrderFront(nil)
         return true
+    }
+
+    /// A new editor on an empty white canvas, so the editor can be opened with nothing captured yet
+    /// (then paste, open or drop an image, or just draw).
+    public func openBlank(width: Int = 1280, height: Int = 800) {
+        let space = CGColorSpace(name: CGColorSpace.sRGB)!
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+        context.setFillColor(CGColor(gray: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        guard let image = context.makeImage() else { return }
+        open(image: CapturedImage(cgImage: image, scale: 1), title: "Untitled")
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     /// Opens files (for example images dropped on the capture panel) in new tabs.

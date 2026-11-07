@@ -67,4 +67,14 @@ struct UXSnapshotTests {
             try Self.render(controller, width: 760, height: 520, dark: true, name: "bar-\(name)-narrow")
         }
     }
+
+    @Test func areaSelectionBar() throws {
+        let doc = EditorDocument(original: Self.sampleImage(), title: "t")
+        let controller = EditorViewController(document: doc, settings: nil)
+        _ = controller.view
+        controller.selectTool(id: EditorToolRegistry.rectangleSelect.id)
+        try Self.render(controller, width: 1100, height: 520, dark: true, name: "area-empty")
+        doc.setSelection(.rect(CGRect(x: 200, y: 200, width: 400, height: 250)))
+        try Self.render(controller, width: 1100, height: 520, dark: true, name: "area-selected")
+    }
 }

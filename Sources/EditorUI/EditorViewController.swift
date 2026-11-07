@@ -121,6 +121,7 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
             .sink { [weak self] selection in
                 self?.shownSelection = selection       // the passed value is the new one; never re-read the document here
                 self?.canvas.selection = selection
+                if self?.optionsModel.isAreaTool == true { self?.optionsModel.areaSelection = self?.areaBounds(selection) }
                 self?.updateStatus()
             }
             .store(in: &cancellables)
@@ -304,16 +305,16 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
             optionsModel.title = descriptor.title
             if descriptor.kind == .object { optionsModel.hint = "Click an object to select it. Drag to move it, or use the handles to resize." }
         }
-        // The bar stays put for object and drawing tools, so the canvas does not jump when you select or deselect.
-        let visible = descriptor.kind != .pixelSelection
-        optionsHeight?.constant = visible ? 38 : 0
-        optionsBar?.isHidden = !visible
+        optionsModel.isAreaTool = descriptor.kind == .pixelSelection
+        optionsModel.areaSelection = descriptor.kind == .pixelSelection ? areaBounds(document.selection) : nil
+        // The bar stays put for every tool, so the canvas does not jump when you switch tools or select.
+        optionsBar?.isHidden = false
         applyOptionsHeight()
     }
 
     /// One line normally; two when the controls do not fit the window's width.
     private func applyOptionsHeight(wraps: Bool? = nil) {
-        let visible = activeTool.descriptor.kind != .pixelSelection
+        let visible = true
         optionsHeight?.constant = visible ? ((wraps ?? optionsModel.wraps) && !optionsModel.properties.isEmpty ? 74 : 38) : 0
     }
 
@@ -362,11 +363,24 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
     }
 
+    /// The selected area's bounding box, or nil.
+    private func areaBounds(_ selection: EditorSelection?) -> CGRect? {
+        guard let sel = selection else { return nil }
+        switch sel {
+        case .rect(let r): return r.integral
+        default: return sel.bounds.integral
+        }
+    }
+
     private func perform(_ action: ToolOptionsModel.ObjectAction) {
         let ids = document.selectedAnnotationIDs
         switch action {
         case .duplicate: document.duplicateAnnotations(ids: ids)
         case .delete: document.removeAnnotations(ids: ids)
+        case .crop: NSApp.sendAction(NSSelectorFromString("cropToSelection:"), to: nil, from: nil)
+        case .copyArea: NSApp.sendAction(NSSelectorFromString("copyImage:"), to: nil, from: nil)
+        case .deselectArea: document.clearSelection()
+        case .selectAllArea: document.selectAll()
         case .bringToFront: document.reorderAnnotations(ids: ids, .toFront)
         case .sendToBack: document.reorderAnnotations(ids: ids, .toBack)
         }
