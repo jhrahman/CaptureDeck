@@ -15,13 +15,19 @@ enum SnapshotRegionCapture {
         return try crop(target, from: snapshots)
     }
 
+    /// Crops the frozen snapshot. The result remembers its target so it can be repeated.
     static func crop(_ target: CaptureTarget, from snapshots: [DisplaySnapshot]) throws -> CaptureResult {
-        guard case .rect(let rect, let displayID) = target,
-              let snapshot = snapshots.first(where: { $0.displayID == displayID }),
-              let cropped = snapshot.image.cropped(toPointRect: rect) else {
-            throw CaptureError.captureFailed("The selected region could not be captured.")
+        let cropped: CapturedImage?
+        switch target {
+        case .rect(let rect, let displayID):
+            cropped = snapshots.first { $0.displayID == displayID }?.image.cropped(toPointRect: rect)
+        case .polygon(let points, let displayID):
+            cropped = snapshots.first { $0.displayID == displayID }?.image.cropped(toPolygon: points)
+        case .display, .window:
+            cropped = nil
         }
-        return .image(cropped)
+        guard let cropped else { throw CaptureError.captureFailed("The selected region could not be captured.") }
+        return .image(cropped.withSource(target))
     }
 
     static func snapshots(
@@ -129,9 +135,32 @@ public struct WindowObjectCaptureMode: CaptureMode {
         switch target {
         case .window:
             // Capture the window itself so windows stacked on top of it do not appear in the result.
-            return .image(try await context.grabber.capture(target, includeCursor: context.includeCursor))
-        case .rect, .display:
+            let image = try await context.grabber.capture(target, includeCursor: context.includeCursor)
+            return .image(image.withSource(target))
+        case .rect, .display, .polygon:
             return try SnapshotRegionCapture.crop(target, from: snapshots)
         }
+    }
+}
+
+/// Draw any outline; the result is its bounding box with everything outside the outline transparent.
+public struct FreehandCaptureMode: CaptureMode {
+    public let id = "freehand"
+    public let title = "Capture Freehand Region"
+    public let defaultShortcut: KeyShortcut? = .digit(5, [.control, .shift])
+
+    private let displaysProvider: @Sendable () async -> [DisplayInfo]
+    private let selector: any RegionSelecting
+
+    public init(
+        selector: any RegionSelecting = RegionSelector(),
+        displaysProvider: @escaping @Sendable () async -> [DisplayInfo] = DisplayLocator.allDisplays
+    ) {
+        self.selector = selector
+        self.displaysProvider = displaysProvider
+    }
+
+    public func run(_ context: CaptureContext) async throws -> CaptureResult {
+        try await SnapshotRegionCapture.run(context, kind: .freehand, selector: selector, displaysProvider: displaysProvider)
     }
 }

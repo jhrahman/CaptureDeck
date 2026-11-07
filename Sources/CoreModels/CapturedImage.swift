@@ -6,10 +6,17 @@ public struct CapturedImage: @unchecked Sendable {
     public let cgImage: CGImage
     /// Pixels per point of the source display (2.0 on Retina).
     public let scale: CGFloat
+    /// What was captured, when it can be captured again ("repeat last capture").
+    public let source: CaptureTarget?
 
-    public init(cgImage: CGImage, scale: CGFloat) {
+    public init(cgImage: CGImage, scale: CGFloat, source: CaptureTarget? = nil) {
         self.cgImage = cgImage
         self.scale = scale
+        self.source = source
+    }
+
+    public func withSource(_ source: CaptureTarget?) -> CapturedImage {
+        CapturedImage(cgImage: cgImage, scale: scale, source: source)
     }
 
     public var pixelSize: CGSize { CGSize(width: cgImage.width, height: cgImage.height) }
@@ -25,6 +32,18 @@ public extension CapturedImage {
     /// A pixel-exact copy of `pointRect` (display points, origin top-left), clamped to the image.
     /// Draws into a new bitmap so the result does not keep the whole source image alive in memory.
     func cropped(toPointRect pointRect: CGRect) -> CapturedImage? {
+        crop(pointRect: pointRect, polygon: nil)
+    }
+
+    /// The polygon's bounding box with everything outside the polygon transparent.
+    func cropped(toPolygon points: [CGPoint]) -> CapturedImage? {
+        guard points.count >= 3 else { return nil }
+        let xs = points.map(\.x), ys = points.map(\.y)
+        let box = CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
+        return crop(pointRect: box, polygon: points)
+    }
+
+    private func crop(pointRect: CGRect, polygon: [CGPoint]?) -> CapturedImage? {
         let bounds = CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height)
         let pixelRect = CGRect(
             x: (pointRect.minX * scale).rounded(.down),
@@ -43,6 +62,15 @@ public extension CapturedImage {
         ) else { return nil }
 
         context.interpolationQuality = .none
+        if let polygon {
+            // Clip to the outline. Bitmap origin is bottom-left; polygon points are top-left based.
+            let mapped = polygon.map {
+                CGPoint(x: $0.x * scale - pixelRect.minX, y: pixelRect.maxY - $0.y * scale)
+            }
+            context.addLines(between: mapped)
+            context.closePath()
+            context.clip()
+        }
         // CGContext origin is bottom-left; pixelRect origin is top-left.
         context.draw(cgImage, in: CGRect(
             x: -pixelRect.minX,

@@ -8,6 +8,8 @@ final class RegionOverlayView: NSView {
     private var model: RegionSelectionModel
     /// Non-nil in fixed-size mode: a rectangle of fixed pixel size follows the pointer.
     private var fixed: FixedSizeSelectionModel?
+    /// Non-nil in freehand mode.
+    private var freehand: FreehandSelectionModel?
     private var presets: [CGSize] = []
     /// Non-nil in window/object mode: hover highlights what is under the pointer.
     private var finder: (any PickTargetFinder)?
@@ -22,6 +24,7 @@ final class RegionOverlayView: NSView {
     var onFinish: ((CGRect) -> Void)?
     var onCancel: (() -> Void)?
     var onPick: ((PickCandidate) -> Void)?
+    var onFinishPolygon: (([CGPoint]) -> Void)?
 
     /// True while the user is selecting on a different display.
     var isLocked = false { didSet { needsDisplay = true } }
@@ -35,6 +38,7 @@ final class RegionOverlayView: NSView {
         self.snapshot = snapshot
         self.style = style
         super.init(frame: frame)
+        if case .freehand = kind { self.freehand = FreehandSelectionModel(bounds: bounds) }
         if case .fixedSize(let presets) = kind {
             self.presets = presets
             let initial = FixedSizePreference.load(default: presets.first ?? CGSize(width: 800, height: 600))
@@ -114,7 +118,7 @@ final class RegionOverlayView: NSView {
         window?.makeFirstResponder(self)
         onClaim?()
         let p = point(for: event)
-        model.begin(at: p)
+        if freehand != nil { freehand?.begin(at: p) } else { model.begin(at: p) }
         mouse = p
         needsDisplay = true
     }
@@ -123,13 +127,18 @@ final class RegionOverlayView: NSView {
         if finder != nil { track(point(for: event)); return }
         if fixed != nil { track(point(for: event)); return }
         let p = point(for: event)
-        model.drag(to: p)
+        if freehand != nil { freehand?.add(p) } else { model.drag(to: p) }
         mouse = p
         needsDisplay = true
     }
 
     override func mouseUp(with event: NSEvent) {
         if fixed != nil || finder != nil { return }
+        if freehand != nil {
+            if let outline = freehand?.end(at: point(for: event)) { onFinishPolygon?(outline) } else { onRelease?() }
+            needsDisplay = true
+            return
+        }
         if let rect = model.end(at: point(for: event)) {
             onFinish?(rect)
         } else {
@@ -169,6 +178,7 @@ final class RegionOverlayView: NSView {
 
     private func resetSelection() {
         model.reset()
+        freehand?.reset()
         onRelease?()
         needsDisplay = true
     }
@@ -196,6 +206,21 @@ final class RegionOverlayView: NSView {
         needsDisplay = true
     }
 
+    private func freehandKeyDown(_ event: NSEvent) {
+        switch event.keyCode {
+        case 53: onCancel?()
+        case 36, 76:
+            if let outline = freehand?.confirm() { onFinishPolygon?(outline) } else { NSSound.beep() }
+        default:
+            if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "z" {
+                resetSelection()
+            } else {
+                super.keyDown(with: event)
+            }
+        }
+        needsDisplay = true
+    }
+
     private func pickKeyDown(_ event: NSEvent) {
         switch event.keyCode {
         case 53: onCancel?()
@@ -210,6 +235,7 @@ final class RegionOverlayView: NSView {
     override func keyDown(with event: NSEvent) {
         if finder != nil { pickKeyDown(event); return }
         if fixed != nil { fixedKeyDown(event); return }
+        if freehand != nil { freehandKeyDown(event); return }
         let step: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
         switch event.keyCode {
         case 53:                       // Esc
@@ -242,10 +268,24 @@ final class RegionOverlayView: NSView {
             selection = (mouse != nil && local?.isNull == false) ? local : nil
         } else if fixed != nil {
             selection = mouse != nil ? fixed?.selection : nil
+        } else if freehand != nil {
+            selection = freehand?.boundingRect
         } else {
             selection = model.selection
         }
-        if let selection {
+        // Freehand: the outline itself is the "hole" in the dim layer; its bounding box only labels the size.
+        var outline: NSBezierPath?
+        if let points = freehand?.points, points.count >= 2 {
+            let path = NSBezierPath()
+            path.move(to: points[0])
+            points.dropFirst().forEach { path.line(to: $0) }
+            path.close()
+            outline = path
+        }
+        if let outline {
+            dim.append(outline)
+            dim.windingRule = .evenOdd
+        } else if let selection, freehand == nil {
             dim.appendRect(selection)
             dim.windingRule = .evenOdd
         }
@@ -255,9 +295,15 @@ final class RegionOverlayView: NSView {
 
         if let selection {
             style.accent.setStroke()
-            let border = NSBezierPath(rect: selection.insetBy(dx: -0.5, dy: -0.5))
-            border.lineWidth = 1
-            border.stroke()
+            if let outline {
+                outline.lineWidth = 1.5
+                outline.lineJoinStyle = .round
+                outline.stroke()
+            } else {
+                let border = NSBezierPath(rect: selection.insetBy(dx: -0.5, dy: -0.5))
+                border.lineWidth = 1
+                border.stroke()
+            }
             drawSizeLabel(for: selection)
         }
         if finder != nil {

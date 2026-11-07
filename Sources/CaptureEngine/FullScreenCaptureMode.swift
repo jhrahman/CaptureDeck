@@ -16,8 +16,9 @@ public struct FullScreenCaptureMode: CaptureMode {
 
     public func run(_ context: CaptureContext) async throws -> CaptureResult {
         guard let displayID = await displayProvider() else { throw CaptureError.noDisplayAvailable }
-        let image = try await context.grabber.capture(.display(displayID), includeCursor: context.includeCursor)
-        return .image(image)
+        let target = CaptureTarget.display(displayID)
+        let image = try await context.grabber.capture(target, includeCursor: context.includeCursor)
+        return .image(image.withSource(target))
     }
 }
 

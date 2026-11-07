@@ -18,8 +18,9 @@ public struct ActiveWindowCaptureMode: CaptureMode {
         guard let windowID = await windowProvider() else {
             throw CaptureError.captureFailed("There is no active window to capture.")
         }
-        let image = try await context.grabber.capture(.window(windowID), includeCursor: context.includeCursor)
-        return .image(image)
+        let target = CaptureTarget.window(windowID)
+        let image = try await context.grabber.capture(target, includeCursor: context.includeCursor)
+        return .image(image.withSource(target))
     }
 }
 

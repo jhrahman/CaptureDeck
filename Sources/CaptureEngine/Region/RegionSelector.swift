@@ -77,6 +77,7 @@ private final class RegionSelectionSession {
             overlay.autoresizingMask = [.width, .height]
             overlay.onClaim = { [weak self, weak overlay] in self?.lockOthers(except: overlay) }
             overlay.onRelease = { [weak self] in self?.unlockAll() }
+            overlay.onFinishPolygon = { [weak self] points in self?.finish(.success(.polygon(points, display: snapshot.displayID))) }
             overlay.onFinish = { [weak self] rect in self?.finish(.success(.rect(rect, display: snapshot.displayID))) }
             overlay.onCancel = { [weak self] in self?.finish(.failure(CaptureError.cancelled)) }
             backdrop.addSubview(overlay)
@@ -121,7 +122,7 @@ private final class RegionSelectionSession {
     private func finish(_ result: Result<CaptureTarget, any Error>) {
         guard let continuation else { return }  // resolve once
         self.continuation = nil
-        for view in views { view.onClaim = nil; view.onRelease = nil; view.onFinish = nil; view.onCancel = nil; view.onPick = nil }
+        for view in views { view.onClaim = nil; view.onRelease = nil; view.onFinish = nil; view.onCancel = nil; view.onPick = nil; view.onFinishPolygon = nil }
         for window in windows { window.orderOut(nil) }
         windows.removeAll()
         views.removeAll()

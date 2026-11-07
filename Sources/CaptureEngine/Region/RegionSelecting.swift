@@ -37,6 +37,8 @@ public enum RegionSelectionKind: Sendable, Equatable {
     /// A rectangle of a fixed pixel size follows the pointer; click to capture.
     /// `presets` appear in a right-click menu.
     case fixedSize(presets: [CGSize])
+    /// Draw any outline; the result is its bounding box with the outside transparent.
+    case freehand
 }
 
 /// Lets the user choose a region. Returns a target (not an image) so other features,

@@ -5,6 +5,9 @@ public enum CaptureTarget: Sendable, Equatable {
     case display(CGDirectDisplayID)
     /// A rectangle in the display's point coordinate space (origin top-left).
     case rect(CGRect, display: CGDirectDisplayID)
+    /// A freehand outline in the display's point coordinates (origin top-left). The result is the
+    /// outline's bounding box with everything outside the outline transparent.
+    case polygon([CGPoint], display: CGDirectDisplayID)
     /// A single window, captured on its own (transparent corners, no desktop behind it).
     case window(CGWindowID)
 }

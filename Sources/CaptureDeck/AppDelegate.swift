@@ -10,13 +10,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let appearance = AppearanceController()
     private let hotkeys = HotkeyManager()
     // Composition root: register capture modes here. Menu items and hotkeys are generated from this list.
-    private let coordinator = CaptureCoordinator(modes: [
-        FullScreenCaptureMode(),
-        RegionCaptureMode(selector: RegionSelector(style: OverlayStyle(accent: Theme.accent))),
-        ActiveWindowCaptureMode(),
-        WindowObjectCaptureMode(selector: RegionSelector(style: OverlayStyle(accent: Theme.accent))),
-        FixedSizeCaptureMode(selector: RegionSelector(style: OverlayStyle(accent: Theme.accent))),
-    ])
+    private let coordinator: CaptureCoordinator = {
+        let overlay = RegionSelector(style: OverlayStyle(accent: Theme.accent))
+        let lastCapture = LastCaptureStore()
+        return CaptureCoordinator(modes: [
+            FullScreenCaptureMode(),
+            RegionCaptureMode(selector: overlay),
+            ActiveWindowCaptureMode(),
+            WindowObjectCaptureMode(selector: overlay),
+            FreehandCaptureMode(selector: overlay),
+            FixedSizeCaptureMode(selector: overlay),
+            RepeatLastCaptureMode(store: lastCapture),
+        ], lastCapture: lastCapture)
+    }()
     private var statusItem: StatusItemController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {

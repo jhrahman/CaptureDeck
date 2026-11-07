@@ -23,10 +23,12 @@ final class CaptureCoordinator {
     let modes: [any CaptureMode]
     private let grabber: any ScreenGrabber
     private let clipboard: ClipboardManager
+    private let lastCapture: LastCaptureStore
     private var isCapturing = false
 
-    init(modes: [any CaptureMode], grabber: any ScreenGrabber = ScreenCaptureKitGrabber(), clipboard: ClipboardManager = ClipboardManager()) {
+    init(modes: [any CaptureMode], lastCapture: LastCaptureStore, grabber: any ScreenGrabber = ScreenCaptureKitGrabber(), clipboard: ClipboardManager = ClipboardManager()) {
         self.modes = modes
+        self.lastCapture = lastCapture
         self.grabber = grabber
         self.clipboard = clipboard
     }
@@ -60,6 +62,7 @@ final class CaptureCoordinator {
     private func deliver(_ result: CaptureResult, settings: CaptureSettings) throws {
         switch result {
         case .image(let image):
+            if let source = image.source { lastCapture.target = source }
             if settings.autoCopyToClipboard {
                 try clipboard.copy(image)
             }

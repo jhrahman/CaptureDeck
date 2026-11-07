@@ -10,6 +10,18 @@ public struct ScreenCaptureKitGrabber: ScreenGrabber {
     public init() {}
 
     public func capture(_ target: CaptureTarget, includeCursor: Bool) async throws -> CapturedImage {
+        if case .polygon(let points, let displayID) = target {
+            // Capture the outline's bounding box, then make everything outside the outline transparent.
+            guard points.count >= 3 else { throw CaptureError.captureFailed("The outline is too small.") }
+            let xs = points.map(\.x), ys = points.map(\.y)
+            let box = CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!).integral
+            let image = try await capture(.rect(box, display: displayID), includeCursor: includeCursor)
+            let relative = points.map { CGPoint(x: $0.x - box.minX, y: $0.y - box.minY) }
+            guard let masked = image.cropped(toPolygon: relative) else {
+                throw CaptureError.captureFailed("The outline could not be captured.")
+            }
+            return masked
+        }
         let content: SCShareableContent
         do {
             content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
@@ -39,6 +51,8 @@ public struct ScreenCaptureKitGrabber: ScreenGrabber {
             } else {
                 pointSize = CGSize(width: display.width, height: display.height)
             }
+        case .polygon:
+            throw CaptureError.captureFailed("Unsupported capture target.")   // handled above
         case .window(let windowID):
             guard let window = content.windows.first(where: { $0.windowID == windowID }) else {
                 throw CaptureError.captureFailed("The window is no longer available.")
