@@ -1,0 +1,64 @@
+import AppKit
+
+/// The main menu bar shown while an editor is open. Window-level actions have no explicit target,
+/// so they go to the key editor window's controller through the responder chain.
+@MainActor
+enum EditorMenu {
+    static func build(store: EditorStore) -> NSMenu {
+        let main = NSMenu()
+
+        func add(_ title: String, to menu: NSMenu, action: Selector?, key: String = "", modifiers: NSEvent.ModifierFlags = [.command], target: AnyObject? = nil) {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            item.keyEquivalentModifierMask = modifiers
+            item.target = target
+            menu.addItem(item)
+        }
+        func submenu(_ title: String) -> NSMenu {
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            let menu = NSMenu(title: title)
+            item.submenu = menu
+            main.addItem(item)
+            return menu
+        }
+
+        let app = submenu("CaptureDeck")
+        add("Quit CaptureDeck", to: app, action: #selector(NSApplication.terminate(_:)), key: "q")
+
+        let file = submenu("File")
+        add("Open…", to: file, action: #selector(EditorStore.openDocument(_:)), key: "o", target: store)
+        file.addItem(.separator())
+        add("Close Tab", to: file, action: #selector(NSWindow.performClose(_:)), key: "w")
+        add("Save", to: file, action: Selector(("saveDocument:")), key: "s")
+        add("Save As…", to: file, action: Selector(("saveDocumentAs:")), key: "s", modifiers: [.command, .shift])
+
+        let edit = submenu("Edit")
+        add("Undo", to: edit, action: Selector(("performUndo:")), key: "z")
+        add("Redo", to: edit, action: Selector(("performRedo:")), key: "z", modifiers: [.command, .shift])
+        edit.addItem(.separator())
+        add("Copy Image", to: edit, action: Selector(("copyImage:")), key: "c")
+        add("Paste as New Tab", to: edit, action: #selector(EditorStore.pasteAsNewTab(_:)), key: "v", target: store)
+
+        let image = submenu("Image")
+        add("Rotate Right", to: image, action: Selector(("rotateRight:")), key: "r")
+        add("Rotate Left", to: image, action: Selector(("rotateLeft:")), key: "l")
+        image.addItem(.separator())
+        add("Flip Horizontal", to: image, action: Selector(("flipHorizontal:")))
+        add("Flip Vertical", to: image, action: Selector(("flipVertical:")))
+
+        let view = submenu("View")
+        add("Zoom In", to: view, action: Selector(("zoomIn:")), key: "=")
+        add("Zoom Out", to: view, action: Selector(("zoomOut:")), key: "-")
+        add("Fit to Window", to: view, action: Selector(("zoomFit:")), key: "9")
+        add("Actual Size", to: view, action: Selector(("zoomActual:")), key: "0")
+
+        let window = submenu("Window")
+        add("Minimize", to: window, action: #selector(NSWindow.performMiniaturize(_:)), key: "m")
+        window.addItem(.separator())
+        add("Show Next Tab", to: window, action: #selector(NSWindow.selectNextTab(_:)), key: "\t", modifiers: [.control])
+        add("Show Previous Tab", to: window, action: #selector(NSWindow.selectPreviousTab(_:)), key: "\t", modifiers: [.control, .shift])
+        add("Move Tab to New Window", to: window, action: #selector(NSWindow.moveTabToNewWindow(_:)))
+        NSApp.windowsMenu = window
+
+        return main
+    }
+}

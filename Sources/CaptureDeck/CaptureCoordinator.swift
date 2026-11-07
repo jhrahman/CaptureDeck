@@ -8,6 +8,7 @@ struct CaptureSettings {
     var autoCopyToClipboard = true
     var includeCursor = false
     var delaySeconds = 0
+    var openEditor = true
     var autoSave = false
     var saveFolder = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first!
         .appendingPathComponent("CaptureDeck", isDirectory: true)
@@ -20,6 +21,7 @@ struct CaptureSettings {
         if let v = bool("capture.autoCopy") { s.autoCopyToClipboard = v }
         if let v = bool("capture.includeCursor") { s.includeCursor = v }
         if let v = bool("capture.autoSave") { s.autoSave = v }
+        if let v = bool("capture.openEditor") { s.openEditor = v }
         if defaults.object(forKey: "capture.delaySeconds") != nil {
             s.delaySeconds = min(max(defaults.integer(forKey: "capture.delaySeconds"), 0), 30)
         }
@@ -44,6 +46,8 @@ final class CaptureCoordinator {
     /// Hooks around the actual capture (the panel hides itself so it is not in the screenshot).
     var beforeCapture: (@MainActor () async -> Void)?
     var afterCapture: (@MainActor () -> Void)?
+    /// Called with each finished capture when "open in editor" is on.
+    var openInEditor: (@MainActor (CapturedImage) -> Void)?
 
     init(modes: [any CaptureMode], lastCapture: LastCaptureStore, grabber: any ScreenGrabber = ScreenCaptureKitGrabber(), clipboard: ClipboardManager = ClipboardManager()) {
         self.modes = modes
@@ -89,6 +93,7 @@ final class CaptureCoordinator {
                 try clipboard.copy(image)
             }
             if settings.autoSave { save(image, settings: settings) }
+            if settings.openEditor { openInEditor?(image.withSource(nil)) }
             NSSound(named: NSSound.Name("Tink"))?.play()
         }
     }

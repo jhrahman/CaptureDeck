@@ -2,6 +2,7 @@
 import PackageDescription
 
 // Dependencies point downward only:
+//   CaptureDeck (app) -> EditorUI -> EditorEngine -> CoreModels
 //   CaptureDeck (app) -> CaptureEngine, Platform, DesignSystem -> CoreModels
 let package = Package(
     name: "CaptureDeck",
@@ -18,14 +19,19 @@ let package = Package(
         .target(name: "CaptureEngine", dependencies: ["CoreModels"]),
         // System services: permissions, clipboard, global hotkeys.
         .target(name: "Platform", dependencies: ["CoreModels"]),
+        // Editor document model, image operations, commands (undo/redo). No UI.
+        .target(name: "EditorEngine", dependencies: ["CoreModels"]),
+        // Editor windows, tabs, canvas, menus (AppKit).
+        .target(name: "EditorUI", dependencies: ["EditorEngine", "CoreModels", "DesignSystem", "Platform"]),
         // App shell and composition root.
         .executableTarget(
             name: "CaptureDeck",
-            dependencies: ["CoreModels", "CaptureEngine", "Platform", "DesignSystem"]
+            dependencies: ["CoreModels", "CaptureEngine", "Platform", "DesignSystem", "EditorUI"]
         ),
         .testTarget(name: "CoreModelsTests", dependencies: ["CoreModels"]),
         .testTarget(name: "DesignSystemTests", dependencies: ["DesignSystem"]),
         .testTarget(name: "CaptureEngineTests", dependencies: ["CaptureEngine", "CoreModels"]),
+        .testTarget(name: "EditorEngineTests", dependencies: ["EditorEngine", "CoreModels"]),
         .testTarget(name: "PlatformTests", dependencies: ["Platform", "CoreModels"]),
     ]
 )

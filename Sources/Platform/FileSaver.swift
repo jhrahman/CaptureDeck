@@ -7,6 +7,16 @@ import UniformTypeIdentifiers
 public enum ImageFileFormat: String, CaseIterable, Sendable {
     case png, jpeg, tiff
 
+    /// Format for a file extension such as "png" or "JPG"; nil if unsupported.
+    public init?(fileExtension: String) {
+        switch fileExtension.lowercased() {
+        case "png": self = .png
+        case "jpg", "jpeg": self = .jpeg
+        case "tif", "tiff": self = .tiff
+        default: return nil
+        }
+    }
+
     public var fileExtension: String {
         switch self {
         case .png: "png"
@@ -56,6 +66,16 @@ public struct FileSaver: Sendable {
             throw FileSaveError.writeFailed
         }
         return url
+    }
+
+    /// Writes to an exact location chosen by the user (Save As). Replaces an existing file.
+    public func write(_ image: CapturedImage, to url: URL, format: ImageFileFormat, jpegQuality: Double = 0.9) throws {
+        let data = try ImageEncoding.data(for: image, format: format, jpegQuality: jpegQuality)
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            throw FileSaveError.writeFailed
+        }
     }
 
     /// With `#` in the template the sequence counts up to the first free name;

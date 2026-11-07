@@ -1,6 +1,7 @@
 import AppKit
 import CaptureEngine
 import DesignSystem
+import EditorUI
 import OSLog
 import Platform
 
@@ -25,13 +26,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }()
     private var statusItem: StatusItemController?
     private var panel: CapturePanelController?
+    private var editor: EditorStore?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         appearance.apply()
         let panel = CapturePanelController(modes: coordinator.modes) { [coordinator] id in coordinator.run(modeID: id) }
         self.panel = panel
-        coordinator.beforeCapture = { await panel.suspend() }
-        coordinator.afterCapture = { panel.resume() }
+        let editor = EditorStore()
+        self.editor = editor
+        coordinator.beforeCapture = { await panel.suspend(); await editor.suspendWindows() }
+        coordinator.afterCapture = { panel.resume(); editor.resumeWindows() }
+        coordinator.openInEditor = { image in editor.open(image: image) }
         statusItem = StatusItemController(appearance: appearance, coordinator: coordinator, panel: panel)
         registerHotkeys()
         panel.showAtLaunch()

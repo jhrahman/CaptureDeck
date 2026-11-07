@@ -55,3 +55,32 @@ struct HotkeyTests {
         try second.register(name: "b", shortcut: shortcut) {}  // free again
     }
 }
+
+struct ImageImportTests {
+    @Test func dpiMapsToScale() {
+        #expect(ImageImport.scale(forDPI: 72) == 1)
+        #expect(ImageImport.scale(forDPI: 144) == 2)
+        #expect(ImageImport.scale(forDPI: 216) == 3)
+        #expect(ImageImport.scale(forDPI: 0) == 1)
+        #expect(ImageImport.scale(forDPI: 9999) == 4)
+    }
+
+    @Test func formatFromExtension() {
+        #expect(ImageFileFormat(fileExtension: "PNG") == .png)
+        #expect(ImageFileFormat(fileExtension: "jpeg") == .jpeg)
+        #expect(ImageFileFormat(fileExtension: "tif") == .tiff)
+        #expect(ImageFileFormat(fileExtension: "webp") == nil)
+    }
+
+    @Test func savedFileLoadsBackWithSameSizeAndScale() throws {
+        let ctx = CGContext(data: nil, width: 50, height: 30, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let original = CapturedImage(cgImage: ctx.makeImage()!, scale: 2)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("capturedeck-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try FileSaver().write(original, to: url, format: .png)
+        let loaded = try #require(ImageImport.load(from: url))
+        #expect(loaded.pixelSize == CGSize(width: 50, height: 30))
+        #expect(loaded.scale == 2)
+    }
+}
