@@ -35,6 +35,7 @@ I started CaptureDeck as a weekend project because I kept opening a second app e
 - **Scrolls for you.** Click a long page and it scrolls on its own, in whichever direction the content goes, and stitches one tall (or wide) image.
 - **Edits right away.** Arrows, boxes, callouts, numbered steps, text, pencil, highlighter, eyedropper, paint bucket. Pick any object later to move or restyle it.
 - **Hides secrets properly.** It reads the text in the picture on your device, so you can click a word to blur, pixelate or cover it. Or paint over anything with the redact brush.
+- **Feels like a Mac app.** Frosted glass in the editor and Settings, solid toolbars so the tools stay readable, and proper light and dark modes.
 - **Stays out of the way.** Hotkeys for everything, clipboard and file output, filename templates, and an optional "close the editor after copy".
 
 <p align="center">
@@ -76,7 +77,7 @@ You need macOS 13+ and Swift 6 (Xcode or the Command Line Tools).
 
 Nine small Swift modules, so each part can be tested alone: `CaptureEngine` (ScreenCaptureKit, region picking, scroll stitching), `EditorEngine` (document model, shapes, rendering, Vision based text detection), `EditorUI` (canvas and tools in AppKit), `Platform`, `Settings` and `SettingsUI` (SwiftUI), `DesignSystem`, `CoreModels` and the menu bar app itself.
 
-The parts I enjoyed most: stitching scroll captures by matching overlapping rows, live blur and pixelate previews while you paint, and tests that drive the real editor to catch the focus and input bugs unit tests miss. There are 390+ of them.
+The parts I enjoyed most: stitching scroll captures by matching overlapping rows, live blur and pixelate previews while you paint, and tests that drive the real editor to catch the focus and input bugs unit tests miss. There are almost 400 of them.
 
 ## Next up
 
