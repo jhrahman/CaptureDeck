@@ -18,6 +18,8 @@ enum SettingID {
     static let openEditor = "capture.openEditor"
     static let autoSave = "capture.autoSave"
     static let includeCursor = "capture.includeCursor"
+    static let labelDisplays = "capture.labelDisplays"
+    static let closeEditorAfterCopy = "capture.closeEditorAfterCopy"
     static let delaySeconds = "capture.delaySeconds"
     static let magnifier = "capture.magnifier"
     static let magnifierZoom = "capture.magnifierZoom"
@@ -93,6 +95,12 @@ enum AppSettings {
             .init(id: SettingID.autoSave, section: .capture, group: "After capturing", title: "Save the image to a file automatically",
                   help: "Folder, file name and format are on the Output tab.", defaultValue: .bool(false), control: .toggle, order: 2),
             .init(id: SettingID.includeCursor, section: .capture, group: "Pointer and timing", title: "Include the mouse pointer",
+                  defaultValue: .bool(false), control: .toggle, order: 0),
+            .init(id: SettingID.labelDisplays, section: .capture, group: "Multiple displays", title: "Label each display in All Displays captures",
+                  help: "Adds a divider and a \"Screen 1\", \"Screen 2\" badge to each display so you can tell them apart. Turn off for a clean picture.",
+                  defaultValue: .bool(true), control: .toggle, order: 0),
+            .init(id: SettingID.closeEditorAfterCopy, section: .capture, group: "Editor", title: "Close the editor after copying",
+                  help: "Clicking Copy in the editor puts the image on the clipboard and closes the editor window.",
                   defaultValue: .bool(false), control: .toggle, order: 0),
             .init(id: SettingID.delaySeconds, section: .capture, group: "Pointer and timing", title: "Delay before capturing",
                   help: "Shows a countdown first, so you can open a menu or arrange the screen. 0 = no delay.",

@@ -9,6 +9,7 @@ import Settings
 struct CaptureSettings {
     var autoCopyToClipboard: Bool
     var includeCursor: Bool
+    var labelDisplays: Bool
     var delaySeconds: Int
     var openEditor: Bool
     var autoSave: Bool
@@ -23,6 +24,7 @@ struct CaptureSettings {
     init(store: SettingsStore) {
         autoCopyToClipboard = store.bool(SettingID.autoCopy)
         includeCursor = store.bool(SettingID.includeCursor)
+        labelDisplays = store.bool(SettingID.labelDisplays)
         delaySeconds = store.int(SettingID.delaySeconds)
         openEditor = store.bool(SettingID.openEditor)
         autoSave = store.bool(SettingID.autoSave)
@@ -83,7 +85,7 @@ final class CaptureCoordinator {
         await beforeCapture?()
         defer { afterCapture?() }
         do {
-            let result = try await mode.run(CaptureContext(grabber: grabber, includeCursor: settings.includeCursor))
+            let result = try await mode.run(CaptureContext(grabber: grabber, includeCursor: settings.includeCursor, labelDisplays: settings.labelDisplays))
             try deliver(result, settings: settings)
         } catch CaptureError.cancelled {
             // User backed out; nothing to report.

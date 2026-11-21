@@ -11,10 +11,13 @@ public protocol ScreenGrabber: Sendable {
 public struct CaptureContext: Sendable {
     public let grabber: any ScreenGrabber
     public let includeCursor: Bool
+    /// When several displays end up in one picture, mark each with a numbered badge and a divider.
+    public let labelDisplays: Bool
 
-    public init(grabber: any ScreenGrabber, includeCursor: Bool) {
+    public init(grabber: any ScreenGrabber, includeCursor: Bool, labelDisplays: Bool = false) {
         self.grabber = grabber
         self.includeCursor = includeCursor
+        self.labelDisplays = labelDisplays
     }
 }
 

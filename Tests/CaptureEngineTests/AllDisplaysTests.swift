@@ -82,3 +82,15 @@ struct AllDisplaysModeTests {
         #expect(AllDisplaysCaptureMode().defaultShortcut == .digit(9, [.control, .shift]))
     }
 }
+
+@Suite struct DisplayLabelTests {
+    @Test func labelsAreLeftToRightAndChangeThePicture() throws {
+        let left = DisplayComposer.Piece(bounds: CGRect(x: -100, y: 0, width: 100, height: 60), image: solid(200, 120, 1, 0, 0, scale: 2))
+        let right = DisplayComposer.Piece(bounds: CGRect(x: 0, y: 0, width: 160, height: 90), image: solid(320, 180, 0, 0, 1, scale: 2))
+        #expect(DisplayComposer.numbering([right, left]) == [2, 1])
+        let plain = try #require(DisplayComposer.compose([left, right]))
+        let marked = try #require(DisplayComposer.compose([left, right], labelled: true))
+        #expect(plain.cgImage.width == marked.cgImage.width && plain.cgImage.height == marked.cgImage.height)
+        #expect(plain.cgImage.dataProvider?.data != marked.cgImage.dataProvider?.data)
+    }
+}
