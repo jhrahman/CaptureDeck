@@ -1,5 +1,6 @@
 #!/bin/bash
-# Builds the app and packages it as dist/CaptureDeck-<version>.zip and .dmg
+# Builds the app and packages it as dist/CaptureDeck.zip and dist/CaptureDeck.dmg.
+# The names carry no version on purpose, so releases/latest/download/CaptureDeck.dmg always works.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -17,12 +18,12 @@ fi
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
-ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUT/CaptureDeck-$VERSION.zip"
+ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUT/CaptureDeck.zip"
 
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
 hdiutil create -volname "CaptureDeck $VERSION" -srcfolder "$STAGE" -ov -format UDZO \
-  "$OUT/CaptureDeck-$VERSION.dmg" >/dev/null
+  "$OUT/CaptureDeck.dmg" >/dev/null
 
-(cd "$OUT" && shasum -a 256 CaptureDeck-"$VERSION".* > SHA256SUMS.txt)
+(cd "$OUT" && shasum -a 256 CaptureDeck.dmg CaptureDeck.zip > SHA256SUMS.txt)
 echo "Packaged:"; ls -lh "$OUT"
