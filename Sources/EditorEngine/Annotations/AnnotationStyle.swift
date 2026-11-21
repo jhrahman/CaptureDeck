@@ -34,6 +34,24 @@ public enum ArrowHeadStyle: String, Codable, Sendable, CaseIterable {
     }
 }
 
+/// How a redaction hides what is under it.
+public enum RedactionMode: String, Sendable, Codable, CaseIterable {
+    /// Gaussian blur (strength = radius). Readable at low strength: use a high one, or one of the others, for secrets.
+    case blur
+    /// Large blocks (strength = block size).
+    case pixelate
+    /// An opaque cover in the stroke color: nothing of the original remains.
+    case solid
+
+    public var title: String {
+        switch self {
+        case .blur: "Blur"
+        case .pixelate: "Pixelate"
+        case .solid: "Solid"
+        }
+    }
+}
+
 /// How an annotation looks. Sizes are in image pixels.
 public struct AnnotationStyle: Equatable, Sendable, Codable {
     public var strokeColor: RGBAColor
@@ -58,6 +76,8 @@ public struct AnnotationStyle: Equatable, Sendable, Codable {
     /// What the two ends of a line look like (lines and arrows only).
     public var startHead: ArrowHeadStyle
     public var endHead: ArrowHeadStyle
+    /// How a redaction brush hides what it covers.
+    public var redaction: RedactionMode
 
     public static let defaultTextColor = RGBAColor(hex: "#1D1D1FFF") ?? .black
     public static let defaultFontName = "Helvetica Neue"
@@ -66,7 +86,7 @@ public struct AnnotationStyle: Equatable, Sendable, Codable {
                 dash: DashStyle = .solid, cornerRadius: Double = 0,
                 fontName: String = AnnotationStyle.defaultFontName, fontSize: Double = 28, bold: Bool = false, italic: Bool = false,
                 alignment: TextAlignment = .left, strength: Double = 12, textColor: RGBAColor = AnnotationStyle.defaultTextColor,
-                startHead: ArrowHeadStyle = .none, endHead: ArrowHeadStyle = .none) {
+                startHead: ArrowHeadStyle = .none, endHead: ArrowHeadStyle = .none, redaction: RedactionMode = .blur) {
         self.strokeColor = strokeColor
         self.fillColor = fillColor
         self.lineWidth = Self.clampWidth(lineWidth)
@@ -82,6 +102,7 @@ public struct AnnotationStyle: Equatable, Sendable, Codable {
         self.textColor = textColor
         self.startHead = startHead
         self.endHead = endHead
+        self.redaction = redaction
     }
 
     public static let defaultStroke = RGBAColor(hex: "#FF3B30FF") ?? .black
@@ -90,7 +111,7 @@ public struct AnnotationStyle: Equatable, Sendable, Codable {
     public static func clampWidth(_ w: Double) -> Double { w.isNaN ? 4 : min(max(w, 0), 200) }
 
     // Missing fields (from older or newer files) fall back to the defaults instead of failing to load.
-    private enum CodingKeys: String, CodingKey { case strokeColor, fillColor, lineWidth, opacity, dash, cornerRadius, fontName, fontSize, bold, italic, alignment, strength, textColor, startHead, endHead }
+    private enum CodingKeys: String, CodingKey { case strokeColor, fillColor, lineWidth, opacity, dash, cornerRadius, fontName, fontSize, bold, italic, alignment, strength, textColor, startHead, endHead, redaction }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -109,6 +130,7 @@ public struct AnnotationStyle: Equatable, Sendable, Codable {
             strength: try c.decodeIfPresent(Double.self, forKey: .strength) ?? 12,
             textColor: try c.decodeIfPresent(RGBAColor.self, forKey: .textColor) ?? Self.defaultTextColor,
             startHead: try c.decodeIfPresent(ArrowHeadStyle.self, forKey: .startHead) ?? .none,
-            endHead: try c.decodeIfPresent(ArrowHeadStyle.self, forKey: .endHead) ?? .none)
+            endHead: try c.decodeIfPresent(ArrowHeadStyle.self, forKey: .endHead) ?? .none,
+            redaction: try c.decodeIfPresent(RedactionMode.self, forKey: .redaction) ?? .blur)
     }
 }

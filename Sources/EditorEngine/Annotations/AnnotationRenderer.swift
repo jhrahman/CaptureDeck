@@ -14,7 +14,7 @@ public enum AnnotationRenderer {
                 annotation.shape.draw(in: context, style: annotation.style)
             }
         }
-        for annotation in annotations {
+        for annotation in StepNumbering.resequenced(annotations) {
             context.saveGState()
             if annotation.style.opacity < 1 {
                 context.setAlpha(CGFloat(annotation.style.opacity))

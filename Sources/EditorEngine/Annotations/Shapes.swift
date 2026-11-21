@@ -30,7 +30,7 @@ private func tidy(_ v: CGFloat) -> CGFloat { (v * 1000).rounded() / 1000 }
 private func tidy(_ p: CGPoint) -> CGPoint { CGPoint(x: tidy(p.x), y: tidy(p.y)) }
 private func tidy(_ r: CGRect) -> CGRect { CGRect(x: tidy(r.minX), y: tidy(r.minY), width: tidy(r.width), height: tidy(r.height)) }
 
-private func distance(from p: CGPoint, toSegment a: CGPoint, _ b: CGPoint) -> CGFloat {
+func distance(from p: CGPoint, toSegment a: CGPoint, _ b: CGPoint) -> CGFloat {
     let dx = b.x - a.x, dy = b.y - a.y
     let lengthSquared = dx * dx + dy * dy
     guard lengthSquared > 0 else { return hypot(p.x - a.x, p.y - a.y) }
@@ -38,7 +38,7 @@ private func distance(from p: CGPoint, toSegment a: CGPoint, _ b: CGPoint) -> CG
     return hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy))
 }
 
-private func boundingRect(of points: [CGPoint]) -> CGRect {
+func boundingRect(of points: [CGPoint]) -> CGRect {
     guard let first = points.first else { return .zero }
     var minX = first.x, maxX = first.x, minY = first.y, maxY = first.y
     for p in points {
@@ -237,13 +237,8 @@ public struct PencilShape: AnnotationShape, Codable, Equatable {
             context.fillEllipse(in: CGRect(x: first.x - r, y: first.y - r, width: 2 * r, height: 2 * r))
             return
         }
-        // Smooth the line by curving through the midpoints between samples.
-        context.move(to: first)
-        for i in 1..<points.count {
-            let mid = CGPoint(x: (points[i - 1].x + points[i].x) / 2, y: (points[i - 1].y + points[i].y) / 2)
-            if i == 1 { context.addLine(to: mid) } else { context.addQuadCurve(to: mid, control: points[i - 1]) }
-        }
-        context.addLine(to: points[points.count - 1])
+        // A smooth curve through the points (no corners, no visible straight segments).
+        StrokeSmoothing.addSmoothPath(through: points, to: context)
         context.strokePath()
     }
 

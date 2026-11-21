@@ -35,6 +35,14 @@ public enum ImageOperation: Sendable, Equatable, Codable {
     case canvasSize(width: Int, height: Int, anchor: CanvasAnchor, fill: RGBAColor)
     /// Rotates clockwise by any angle; the canvas grows to hold the result and the corners are `fill`.
     case rotateByAngle(degrees: Double, fill: RGBAColor)
+    /// Erases the pixels inside a rectangle (they become transparent). Pixels, origin top-left.
+    case clearArea(CGRect)
+    /// Erases the pixels inside an outline.
+    case clearPolygon([CGPoint])
+    /// Paints a rectangle with a solid colour.
+    case fillArea(CGRect, RGBAColor)
+    /// Paints the inside of an outline with a solid colour.
+    case fillPolygon([CGPoint], RGBAColor)
 
     public var name: String {
         switch self {
@@ -45,6 +53,16 @@ public enum ImageOperation: Sendable, Equatable, Codable {
         case .flipVertical: "Flip Vertical"
         case .canvasSize: "Canvas Size"
         case .rotateByAngle(let degrees, _): "Rotate \(Self.format(degrees))°"
+        case .clearArea, .clearPolygon: "Delete Area"
+        case .fillArea, .fillPolygon: "Fill Area"
+        }
+    }
+
+    /// False for operations that only repaint pixels inside the picture (the picture keeps its size, so a selection still applies).
+    public var changesShape: Bool {
+        switch self {
+        case .clearArea, .clearPolygon, .fillArea, .fillPolygon: false
+        default: true
         }
     }
 
@@ -118,7 +136,39 @@ public enum ImageOperation: Sendable, Equatable, Codable {
             ctx.scaleBy(x: 1, y: -1)
             ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
             return ctx.makeImage()
+
+        case .clearArea(let rect): return Self.paint(image, rect: rect, polygon: nil, color: nil)
+        case .clearPolygon(let points): return Self.paint(image, rect: nil, polygon: points, color: nil)
+        case .fillArea(let rect, let color): return Self.paint(image, rect: rect, polygon: nil, color: color)
+        case .fillPolygon(let points, let color): return Self.paint(image, rect: nil, polygon: points, color: color)
         }
+    }
+
+    /// The picture with an area erased (`color` nil) or painted. The area is a rectangle or an outline, in pixels from the top-left.
+    private static func paint(_ image: CGImage, rect: CGRect?, polygon: [CGPoint]?, color: RGBAColor?) -> CGImage? {
+        let w = image.width, h = image.height
+        guard let ctx = context(width: w, height: h, like: image) else { return nil }
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.translateBy(x: 0, y: CGFloat(h))
+        ctx.scaleBy(x: 1, y: -1)                                  // from here on: top-left origin, like the rest of the editor
+        if let color {
+            ctx.setBlendMode(.normal)
+            ctx.setFillColor(color.cgColor)
+        } else {
+            ctx.setBlendMode(.clear)
+        }
+        if let rect {
+            let r = rect.integral.intersection(CGRect(x: 0, y: 0, width: w, height: h))
+            guard !r.isNull, r.width >= 1, r.height >= 1 else { return nil }
+            ctx.fill(r)
+        } else if let polygon, polygon.count >= 3 {
+            ctx.addLines(between: polygon)
+            ctx.closePath()
+            ctx.fillPath()
+        } else {
+            return nil
+        }
+        return ctx.makeImage()
     }
 
     /// The canvas needed to hold a picture rotated by `degrees`.
@@ -152,6 +202,7 @@ public enum ImageOperation: Sendable, Equatable, Codable {
         case .canvasSize(let nw, let nh, let anchor, _):
             let f = anchor.fractions
             return CGAffineTransform(translationX: (CGFloat(nw - w) * f.x).rounded(), y: (CGFloat(nh - h) * f.y).rounded())
+        case .clearArea, .clearPolygon, .fillArea, .fillPolygon: return .identity
         case .rotateByAngle(let degrees, _):
             let (nw, nh) = Self.rotatedSize(width: w, height: h, degrees: degrees)
             return CGAffineTransform(translationX: -W / 2, y: -H / 2)

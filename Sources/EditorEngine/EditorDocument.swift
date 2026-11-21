@@ -70,6 +70,9 @@ public final class EditorDocument: ObservableObject, Identifiable {
         self.fileURL = fileURL
     }
 
+    /// Whether the editor should start with the whole picture selected (not wanted for a blank canvas).
+    public var startsWithFullSelection = true
+
     public var canUndo: Bool { !undoStack.isEmpty }
     public var canRedo: Bool { !redoStack.isEmpty }
     public var undoName: String? { undoNames.last }
@@ -155,6 +158,13 @@ public final class EditorDocument: ObservableObject, Identifiable {
         guard perform(AddAnnotationsCommand([annotation])) else { return false }
         if select { selectedAnnotationIDs = [annotation.id] }
         return true
+    }
+
+    /// Adds several annotations as ONE undoable step (hiding every word of a page, say, is a single Undo).
+    @discardableResult
+    public func addAnnotations(_ annotations: [Annotation], name: String? = nil) -> Bool {
+        guard !annotations.isEmpty else { return false }
+        return perform(AddAnnotationsCommand(annotations, name: name))
     }
 
     /// Replaces annotations (same ids) with new versions as one undoable step: restyle, move, resize.
@@ -288,19 +298,39 @@ public final class EditorDocument: ObservableObject, Identifiable {
         return apply(.crop(selection.bounds.integral))
     }
 
+    /// Erases the selected area: those pixels become transparent (undoable). The selection stays, so the area can be filled next.
+    @discardableResult
+    public func eraseSelection() -> Bool {
+        switch selection {
+        case .rect(let rect)?: return apply(.clearArea(rect.integral))
+        case .freehand(let points)?: return apply(.clearPolygon(points))
+        case nil: return false
+        }
+    }
+
+    /// Paints the selected area with a solid colour (undoable).
+    @discardableResult
+    public func fillSelection(with color: RGBAColor) -> Bool {
+        switch selection {
+        case .rect(let rect)?: return apply(.fillArea(rect.integral, color))
+        case .freehand(let points)?: return apply(.fillPolygon(points, color))
+        case nil: return false
+        }
+    }
+
     // MARK: Used by commands
 
     func appendOperation(_ operation: ImageOperation) -> Bool {
         guard let image = operation.apply(to: workingImage.cgImage) else { return false }
         operations.append(operation)
         workingImage = CapturedImage(cgImage: image, scale: workingImage.scale)
-        selection = nil          // the picture changed shape; the old selection no longer applies
+        if operation.changesShape { selection = nil }          // the picture changed shape; the old selection no longer applies
         return true
     }
 
     func removeLastOperation() {
         guard !operations.isEmpty else { return }
-        operations.removeLast()
+        let removed = operations.removeLast()
         // Replay from the untouched original.
         var image = original.cgImage
         for operation in operations {
@@ -308,6 +338,6 @@ public final class EditorDocument: ObservableObject, Identifiable {
             image = next
         }
         workingImage = CapturedImage(cgImage: image, scale: original.scale)
-        selection = nil
+        if removed.changesShape { selection = nil }
     }
 }

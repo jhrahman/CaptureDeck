@@ -53,6 +53,22 @@ public enum PixelEffects {
         context.restoreGState()
     }
 
+    /// Pictures with more pixels than this are processed only where needed instead of as a whole.
+    private static let wholePictureLimit = 36_000_000
+
+    /// Draws the blur / pixelation of the picture through whatever clip is currently set on `context` (a brush stroke).
+    /// The whole picture is processed once and cached, so painting many strokes, or dragging one around, costs almost nothing.
+    static func drawThroughClip(_ kind: Kind, strength: Double, backdrop: CGImage, in context: CGContext) {
+        let full = CGRect(x: 0, y: 0, width: backdrop.width, height: backdrop.height)
+        let area = backdrop.width * backdrop.height <= wholePictureLimit
+            ? full
+            : context.boundingBoxOfClipPath.insetBy(dx: -2, dy: -2).intersection(full)
+        guard !area.isNull, !area.isEmpty else { return }
+        var style = AnnotationStyle(strokeColor: .black)
+        style.strength = strength
+        draw(kind, rect: area, style: style, backdrop: backdrop, in: context)
+    }
+
     // MARK: Cache
 
     /// Dragging or redrawing the canvas would otherwise recompute the same blur many times a second.
