@@ -15,36 +15,37 @@ public enum DisplayComposer {
     }
 
     /// One image holding every display. It is sharp on the sharpest display (the highest scale); gaps between
-    /// displays that do not touch are transparent. Returns nil if there is nothing to compose.
+    /// displays that do not touch are transparent. With `labelled`, the displays are instead set on a dark glass
+    /// backdrop, apart from each other, with a "Screen 1" label under each. Returns nil if there is nothing to compose.
     public static func compose(_ pieces: [Piece], labelled: Bool = false) -> CapturedImage? {
         guard let first = pieces.first else { return nil }
         if pieces.count == 1 { return first.image }
+        if labelled { return composeFramed(pieces) }
 
         let union = pieces.dropFirst().reduce(first.bounds) { $0.union($1.bounds) }
         let scale = pieces.map(\.image.scale).max() ?? 1
-        let width = Int((union.width * scale).rounded()), picturesHeight = Int((union.height * scale).rounded())
-        // The labels go in their own strip under the pictures, so no screenshot pixel is covered.
-        let strip = labelled ? Int((captionHeight * scale).rounded()) : 0
-        let height = picturesHeight + strip
-        guard width >= 1, picturesHeight >= 1, width <= 60_000, height <= 60_000 else { return nil }
+        let width = Int((union.width * scale).rounded()), height = Int((union.height * scale).rounded())
+        guard width >= 1, height >= 1, width <= 60_000, height <= 60_000 else { return nil }
+        guard let context = makeContext(width: width, height: height) else { return nil }
 
-        let space = CGColorSpace(name: CGColorSpace.sRGB)!
-        guard let context = CGContext(
-            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
-            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
-        ) else { return nil }
-
-        context.interpolationQuality = .high
         for piece in pieces {
             // The bitmap's origin is bottom-left; display positions are measured from the top-left.
             let x = (piece.bounds.minX - union.minX) * scale
             let top = (piece.bounds.minY - union.minY) * scale
             let w = piece.bounds.width * scale, h = piece.bounds.height * scale
-            context.draw(piece.image.cgImage, in: CGRect(x: x, y: CGFloat(picturesHeight) - top - h + CGFloat(strip), width: w, height: h))
+            context.draw(piece.image.cgImage, in: CGRect(x: x, y: CGFloat(height) - top - h, width: w, height: h))
         }
-        if labelled { drawCaptions(pieces, union: union, scale: scale, width: width, strip: strip, in: context) }
         guard let result = context.makeImage() else { return nil }
         return CapturedImage(cgImage: result, scale: scale)
+    }
+
+    private static func makeContext(width: Int, height: Int) -> CGContext? {
+        let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+        context?.interpolationQuality = .high
+        return context
     }
 
     /// Display numbers, left to right (then top to bottom), so "Screen 1" is the left-most one.
@@ -58,45 +59,105 @@ public enum DisplayComposer {
         return numbers
     }
 
-    /// Height (points) of the caption strip added under the pictures when displays are labelled.
-    static let captionHeight: CGFloat = 52
+    // MARK: Glass backdrop layout (all in points)
 
-    /// The strip under the pictures: a slim accent bar under each display (so you can see which label belongs to which),
-    /// and a "Screen 1" label centred beneath it.
-    private static func drawCaptions(_ pieces: [Piece], union: CGRect, scale: CGFloat, width: Int, strip: Int, in context: CGContext) {
-        let numbers = numbering(pieces)
-        let stripRect = CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(strip))
-        context.setFillColor(CGColor(red: 0.09, green: 0.10, blue: 0.12, alpha: 1))
-        context.fill(stripRect)
+    static let margin: CGFloat = 36
+    static let columnGap: CGFloat = 36
+    /// Room between rows (and under the bottom row) for the labels.
+    static let rowGap: CGFloat = 84
 
-        let order = pieces.indices.sorted { numbers[$0] < numbers[$1] }
-        var nextFreeX: CGFloat = 0
-        for index in order {
-            let piece = pieces[index]
-            let x = (piece.bounds.minX - union.minX) * scale
-            let w = piece.bounds.width * scale
-
-            // Accent bar along the top edge of the strip, exactly as wide as the display above it.
-            let gap = 3 * scale
-            context.setFillColor(CGColor(red: 0.04, green: 0.52, blue: 1, alpha: 1))
-            context.fill(CGRect(x: x + gap, y: CGFloat(strip) - 4 * scale, width: max(w - 2 * gap, 1), height: 4 * scale))
-
-            let font = CTFontCreateWithName("Helvetica Neue Bold" as CFString, 15 * scale, nil)
-            let isMain = piece.bounds.origin == .zero
-            let text = "Screen \(numbers[index])" + (isMain ? "  ·  Main" : "")
-            let attributed = CFAttributedStringCreate(nil, text as CFString, [
-                kCTFontAttributeName: font,
-                kCTForegroundColorAttributeName: CGColor(gray: 1, alpha: 0.95),
-            ] as CFDictionary)!
-            let line = CTLineCreateWithAttributedString(attributed)
-            let bounds = CTLineGetBoundsWithOptions(line, [])
-            var left = x + (w - bounds.width) / 2
-            left = max(left, nextFreeX)                         // keep labels of stacked displays apart
-            nextFreeX = left + bounds.width + 24 * scale
-            let baseline = (CGFloat(strip) - 4 * scale - bounds.height) / 2 - bounds.minY
-            context.textPosition = CGPoint(x: left - bounds.minX, y: baseline)
-            CTLineDraw(line, context)
+    /// Which column (or row) each interval falls in: intervals that overlap share one.
+    private static func groupIndex(_ ranges: [ClosedRange<CGFloat>]) -> [Int] {
+        let order = ranges.indices.sorted { ranges[$0].lowerBound < ranges[$1].lowerBound }
+        var result = [Int](repeating: 0, count: ranges.count)
+        var group = 0, reach = -CGFloat.infinity
+        for (n, i) in order.enumerated() {
+            if n > 0, ranges[i].lowerBound >= reach - 0.5 { group += 1; reach = ranges[i].upperBound }
+            else { reach = max(reach, ranges[i].upperBound) }
+            result[i] = group
         }
+        return result
+    }
+
+    /// Where each display goes on the backdrop, and how big the backdrop is. The layout of the desk is kept,
+    /// with a gap added between neighbouring displays.
+    static func framedLayout(_ pieces: [Piece]) -> (size: CGSize, frames: [CGRect]) {
+        let union = pieces.dropFirst().reduce(pieces[0].bounds) { $0.union($1.bounds) }
+        let columns = groupIndex(pieces.map { $0.bounds.minX...$0.bounds.maxX })
+        let rows = groupIndex(pieces.map { $0.bounds.minY...$0.bounds.maxY })
+        let frames = pieces.indices.map { i -> CGRect in
+            CGRect(x: margin + pieces[i].bounds.minX - union.minX + CGFloat(columns[i]) * columnGap,
+                   y: margin + pieces[i].bounds.minY - union.minY + CGFloat(rows[i]) * rowGap,
+                   width: pieces[i].bounds.width, height: pieces[i].bounds.height)
+        }
+        let full = frames.dropFirst().reduce(frames[0]) { $0.union($1) }
+        return (CGSize(width: full.maxX + margin, height: full.maxY + rowGap), frames)
+    }
+
+    private static func composeFramed(_ pieces: [Piece]) -> CapturedImage? {
+        let scale = pieces.map(\.image.scale).max() ?? 1
+        let layout = framedLayout(pieces)
+        let width = Int((layout.size.width * scale).rounded()), height = Int((layout.size.height * scale).rounded())
+        guard width >= 1, height >= 1, width <= 60_000, height <= 60_000 else { return nil }
+        guard let context = makeContext(width: width, height: height) else { return nil }
+        let numbers = numbering(pieces)
+        let rgb = CGColorSpace(name: CGColorSpace.sRGB)!
+
+        // Backdrop: graphite, a little lighter towards the top-left, like the dark glass of a macOS panel.
+        let backdrop = CGGradient(colorsSpace: rgb, colors: [
+            CGColor(red: 0.17, green: 0.18, blue: 0.22, alpha: 1), CGColor(red: 0.06, green: 0.07, blue: 0.09, alpha: 1),
+        ] as CFArray, locations: [0, 1])!
+        context.drawLinearGradient(backdrop, start: CGPoint(x: 0, y: CGFloat(height)), end: CGPoint(x: CGFloat(width), y: 0), options: [])
+
+        // Image space is top-left based; the bitmap is bottom-left based.
+        func flipped(_ r: CGRect) -> CGRect {
+            CGRect(x: r.minX * scale, y: CGFloat(height) - r.maxY * scale, width: r.width * scale, height: r.height * scale)
+        }
+        let corner = 12 * scale
+
+        for (i, piece) in pieces.enumerated() {
+            let rect = flipped(layout.frames[i])
+            // Soft shadow under the display.
+            context.saveGState()
+            context.setShadow(offset: CGSize(width: 0, height: -10 * scale), blur: 30 * scale, color: CGColor(gray: 0, alpha: 0.55))
+            context.setFillColor(CGColor(gray: 0, alpha: 1))
+            context.addPath(CGPath(roundedRect: rect, cornerWidth: corner, cornerHeight: corner, transform: nil)); context.fillPath()
+            context.restoreGState()
+            // The screenshot, with macOS-style rounded corners.
+            context.saveGState()
+            context.addPath(CGPath(roundedRect: rect, cornerWidth: corner, cornerHeight: corner, transform: nil)); context.clip()
+            context.draw(piece.image.cgImage, in: rect)
+            context.restoreGState()
+            // A hairline glass edge just outside the picture.
+            let edge = rect.insetBy(dx: -0.5 * scale, dy: -0.5 * scale)
+            context.setStrokeColor(CGColor(gray: 1, alpha: 0.22)); context.setLineWidth(scale)
+            context.addPath(CGPath(roundedRect: edge, cornerWidth: corner + 0.5 * scale, cornerHeight: corner + 0.5 * scale, transform: nil)); context.strokePath()
+
+            drawLabel(number: numbers[i], isMain: piece.bounds.origin == .zero, under: rect, scale: scale, in: context)
+        }
+        guard let result = context.makeImage() else { return nil }
+        return CapturedImage(cgImage: result, scale: scale)
+    }
+
+    /// A frosted pill with a blue dot and "Screen 1", centred under a display.
+    private static func drawLabel(number: Int, isMain: Bool, under display: CGRect, scale: CGFloat, in context: CGContext) {
+        let font = CTFontCreateWithName("Helvetica Neue Medium" as CFString, 15 * scale, nil)
+        let text = "Screen \(number)" + (isMain ? "  ·  Main" : "")
+        let attributed = CFAttributedStringCreate(nil, text as CFString, [
+            kCTFontAttributeName: font, kCTForegroundColorAttributeName: CGColor(gray: 1, alpha: 0.92),
+        ] as CFDictionary)!
+        let line = CTLineCreateWithAttributedString(attributed)
+        let textBounds = CTLineGetBoundsWithOptions(line, [])
+        let dot = 8 * scale, padX = 16 * scale, gapDot = 10 * scale
+        let pillW = padX * 2 + dot + gapDot + textBounds.width, pillH = 34 * scale
+        let pill = CGRect(x: display.midX - pillW / 2, y: display.minY - 20 * scale - pillH, width: pillW, height: pillH)
+        let path = CGPath(roundedRect: pill, cornerWidth: pillH / 2, cornerHeight: pillH / 2, transform: nil)
+        context.setFillColor(CGColor(gray: 1, alpha: 0.10)); context.addPath(path); context.fillPath()
+        context.setStrokeColor(CGColor(gray: 1, alpha: 0.20)); context.setLineWidth(scale); context.addPath(path); context.strokePath()
+        context.setFillColor(CGColor(red: 0.04, green: 0.52, blue: 1, alpha: 1))
+        context.fillEllipse(in: CGRect(x: pill.minX + padX, y: pill.midY - dot / 2, width: dot, height: dot))
+        context.textPosition = CGPoint(x: pill.minX + padX + dot + gapDot - textBounds.minX, y: pill.midY - textBounds.height / 2 - textBounds.minY)
+        CTLineDraw(line, context)
     }
 }
 

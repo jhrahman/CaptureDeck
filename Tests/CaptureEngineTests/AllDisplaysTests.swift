@@ -84,19 +84,37 @@ struct AllDisplaysModeTests {
 }
 
 @Suite struct DisplayLabelTests {
-    @Test func labelsAreLeftToRightAndChangeThePicture() throws {
-        let left = DisplayComposer.Piece(bounds: CGRect(x: -100, y: 0, width: 100, height: 60), image: solid(200, 120, 1, 0, 0, scale: 2))
-        let right = DisplayComposer.Piece(bounds: CGRect(x: 0, y: 0, width: 160, height: 90), image: solid(320, 180, 0, 0, 1, scale: 2))
+    private let left = DisplayComposer.Piece(bounds: CGRect(x: -100, y: 0, width: 100, height: 60), image: solid(200, 120, 1, 0, 0, scale: 2))
+    private let right = DisplayComposer.Piece(bounds: CGRect(x: 0, y: 0, width: 160, height: 90), image: solid(320, 180, 0, 0, 1, scale: 2))
+
+    @Test func labelsAreLeftToRight() {
         #expect(DisplayComposer.numbering([right, left]) == [2, 1])
-        let plain = try #require(DisplayComposer.compose([left, right]))
-        let marked = try #require(DisplayComposer.compose([left, right], labelled: true))
-        // The labels live in a strip added below; the screenshots themselves are untouched.
-        let strip = Int(DisplayComposer.captionHeight * 2)
-        #expect(marked.cgImage.width == plain.cgImage.width && marked.cgImage.height == plain.cgImage.height + strip)
-        let pictureRows = plain.cgImage.height
-        for (x, y) in [(2, 2), (50, 30), (199, 10), (201, 10), (400, 30), (518, 2), (100, 150), (300, pictureRows - 1)] {
-            #expect(rgba(marked.cgImage, x, y) == rgba(plain.cgImage, x, y))
+    }
+
+    @Test func displaysSitApartOnAnOpaqueBackdropAndKeepTheirPixels() throws {
+        let layout = DisplayComposer.framedLayout([left, right])
+        #expect(layout.frames[1].minX - layout.frames[0].maxX == DisplayComposer.columnGap)     // a real gap between them
+        #expect(layout.frames[0].size == left.bounds.size && layout.frames[1].size == right.bounds.size)
+        let out = try #require(DisplayComposer.compose([left, right], labelled: true))
+        #expect(out.pixelSize == CGSize(width: layout.size.width * 2, height: layout.size.height * 2))
+        // Display interiors are untouched (the centre is clear of the rounded corners).
+        for (i, expected) in [[255, 0, 0, 255], [0, 0, 255, 255]].enumerated() {
+            let f = layout.frames[i]
+            #expect(rgba(out.cgImage, Int(f.midX * 2), Int(f.midY * 2)) == expected)
+            #expect(rgba(out.cgImage, Int(f.minX * 2) + 40, Int(f.minY * 2) + 40) == expected)
         }
-        #expect(rgba(marked.cgImage, 5, pictureRows + 4)[3] == 255)       // the strip is opaque
+        // Backdrop is opaque everywhere, including the gap and the label area.
+        #expect(rgba(out.cgImage, 2, 2)[3] == 255)
+        let gapX = Int((layout.frames[0].maxX + DisplayComposer.columnGap / 2) * 2)
+        #expect(rgba(out.cgImage, gapX, 60)[3] == 255)
+        #expect(rgba(out.cgImage, gapX, 60) != [255, 0, 0, 255] && rgba(out.cgImage, gapX, 60) != [0, 0, 255, 255])
+    }
+
+    @Test func stackedDisplaysGetRoomForTheirLabels() {
+        let top = DisplayComposer.Piece(bounds: CGRect(x: 0, y: -50, width: 100, height: 50), image: solid(100, 50, 0, 1, 0, scale: 1))
+        let bottom = DisplayComposer.Piece(bounds: CGRect(x: 0, y: 0, width: 100, height: 50), image: solid(100, 50, 1, 0, 0, scale: 1))
+        let layout = DisplayComposer.framedLayout([top, bottom])
+        #expect(layout.frames[1].minY - layout.frames[0].maxY == DisplayComposer.rowGap)
+        #expect(layout.frames[0].minX == layout.frames[1].minX)                                  // still one column
     }
 }

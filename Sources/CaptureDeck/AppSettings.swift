@@ -97,7 +97,7 @@ enum AppSettings {
             .init(id: SettingID.includeCursor, section: .capture, group: "Pointer and timing", title: "Include the mouse pointer",
                   defaultValue: .bool(false), control: .toggle, order: 0),
             .init(id: SettingID.labelDisplays, section: .capture, group: "Multiple displays", title: "Label each display in All Displays captures",
-                  help: "Adds a strip under the picture with \"Screen 1\", \"Screen 2\" labels, one under each display. The screenshots themselves are not touched. Turn off for no strip.",
+                  help: "Sets the displays apart on a dark glass backdrop with a \"Screen 1\", \"Screen 2\" label under each one. The screenshots themselves are not drawn on. Turn off to get the displays joined edge to edge.",
                   defaultValue: .bool(true), control: .toggle, order: 0),
             .init(id: SettingID.closeEditorAfterCopy, section: .capture, group: "Editor", title: "Close the editor after copying",
                   help: "Clicking Copy in the editor puts the image on the clipboard and closes the editor window.",
