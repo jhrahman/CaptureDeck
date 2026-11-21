@@ -13,6 +13,8 @@ final class RegionOverlayView: NSView {
     private var presets: [CGSize] = []
     /// Non-nil in window/object mode: hover highlights what is under the pointer.
     private var finder: (any PickTargetFinder)?
+    /// True when one window is framed from the start (active-window capture) and only a click inside it captures.
+    private var isPinned = false
     private var pick = ObjectPickModel()
     private var globalOrigin = CGPoint.zero
     private let snapshot: CapturedImage
@@ -31,6 +33,10 @@ final class RegionOverlayView: NSView {
     var isLocked = false { didSet { needsDisplay = true } }
 
     private static let loupeSize: CGFloat = 128
+    private let redFrame = NSColor(srgbRed: 1, green: 0.19, blue: 0.19, alpha: 1)
+
+    /// The pointer for this kind of capture (crosshair plus a badge).
+    private(set) var captureCursor = CaptureCursors.cursor(for: .region)
 
     init(frame: CGRect, snapshot: CapturedImage, style: OverlayStyle, options: OverlayOptions, kind: RegionSelectionKind) {
         let bounds = CGRect(origin: .zero, size: frame.size)
@@ -39,9 +45,10 @@ final class RegionOverlayView: NSView {
         self.style = style
         self.options = options
         super.init(frame: frame)
-        if case .freehand = kind { self.freehand = FreehandSelectionModel(bounds: bounds) }
+        if case .freehand = kind { self.freehand = FreehandSelectionModel(bounds: bounds); captureCursor = CaptureCursors.cursor(for: .freehand) }
         if case .fixedSize(let presets) = kind {
             self.presets = presets
+            captureCursor = CaptureCursors.cursor(for: .fixedSize)
             let initial = options.lastFixedSize ?? presets.first ?? CGSize(width: 800, height: 600)
             self.fixed = FixedSizeSelectionModel(bounds: bounds, scale: snapshot.scale, sizePx: initial)
         }
@@ -54,8 +61,10 @@ final class RegionOverlayView: NSView {
         self.style = style
         self.options = options
         self.finder = finder
+        if let pinned = finder.pinnedCandidate { isPinned = true; pick.update([pinned]) }
         self.globalOrigin = globalOrigin
         super.init(frame: frame)
+        captureCursor = CaptureCursors.cursor(for: .window)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -64,7 +73,7 @@ final class RegionOverlayView: NSView {
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    override func resetCursorRects() { addCursorRect(bounds, cursor: .crosshair) }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: captureCursor) }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -74,7 +83,7 @@ final class RegionOverlayView: NSView {
             owner: self, userInfo: nil))
     }
 
-    override func cursorUpdate(with event: NSEvent) { NSCursor.crosshair.set() }
+    override func cursorUpdate(with event: NSEvent) { captureCursor.set() }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -90,12 +99,12 @@ final class RegionOverlayView: NSView {
 
     override func mouseEntered(with event: NSEvent) { track(point(for: event)) }
     override func mouseExited(with event: NSEvent) { mouse = nil; needsDisplay = true }
-    override func mouseMoved(with event: NSEvent) { track(point(for: event)) }
+    override func mouseMoved(with event: NSEvent) { captureCursor.set(); track(point(for: event)) }
 
     private func track(_ p: CGPoint) {
         mouse = p
         fixed?.move(to: p)
-        if let finder {
+        if let finder, !isPinned {
             pick.update(finder.candidates(at: CGPoint(x: globalOrigin.x + p.x, y: globalOrigin.y + p.y)))
         }
         needsDisplay = true
@@ -105,6 +114,12 @@ final class RegionOverlayView: NSView {
         if finder != nil {   // window/object mode: a click captures the highlighted candidate
             window?.makeKey()
             track(point(for: event))
+            if isPinned {                                   // only a click on the framed window captures it
+                let p = point(for: event)
+                let global = CGPoint(x: globalOrigin.x + p.x, y: globalOrigin.y + p.y)
+                if let candidate = pick.current, candidate.rect.contains(global) { onPick?(candidate) }
+                return
+            }
             if let candidate = pick.current { onPick?(candidate) }
             return
         }
@@ -267,7 +282,7 @@ final class RegionOverlayView: NSView {
         let selection: CGRect?
         if finder != nil {
             let local = pick.current.map { $0.rect.offsetBy(dx: -globalOrigin.x, dy: -globalOrigin.y).intersection(bounds) }
-            selection = (mouse != nil && local?.isNull == false) ? local : nil
+            selection = ((mouse != nil || isPinned) && local?.isNull == false) ? local : nil
         } else if fixed != nil {
             selection = mouse != nil ? fixed?.selection : nil
         } else if freehand != nil {
@@ -296,21 +311,25 @@ final class RegionOverlayView: NSView {
         guard !isLocked else { return }
 
         if let selection {
-            style.accent.setStroke()
+            if finder != nil { redFrame.setStroke() } else { style.accent.setStroke() }
             if let outline {
                 outline.lineWidth = 1.5
                 outline.lineJoinStyle = .round
                 outline.stroke()
             } else {
-                let border = NSBezierPath(rect: selection.insetBy(dx: -0.5, dy: -0.5))
-                border.lineWidth = 1
+                // Windows and objects get a bold red frame so it is obvious what a click will capture.
+                let thickness: CGFloat = finder != nil ? 4 : 1
+                let border = NSBezierPath(rect: selection.insetBy(dx: -thickness / 2, dy: -thickness / 2))
+                border.lineWidth = thickness
                 border.stroke()
             }
             drawSizeLabel(for: selection)
         }
         if finder != nil {
-            drawPill(pick.candidates.count > 1 ? "Click to capture   ↑ ↓ choose parent / child   Esc cancel"
-                                                : "Click to capture a window   Esc cancel",
+            let fallback = isPinned ? "Click the window to capture it   Esc cancel"
+                : pick.candidates.count > 1 ? "Click to capture   ↑ ↓ choose parent / child   Esc cancel"
+                : "Click to capture a window   Esc cancel"
+            drawPill(finder?.pinnedHint ?? fallback,
                      at: CGPoint(x: bounds.midX - 150, y: 24))
         } else if let mouse, options.showMagnifier {
             drawLoupe(at: mouse)

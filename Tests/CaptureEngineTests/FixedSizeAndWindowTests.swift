@@ -116,12 +116,43 @@ private actor TargetRecorder: ScreenGrabber {
     }
 }
 
+/// Stands in for the user clicking the framed window (or pressing Esc), and remembers what was framed.
+private actor ClickStub: RegionSelecting {
+    let click: Bool
+    var framed: PickCandidate?
+    init(click: Bool) { self.click = click }
+    func selectRegion(on snapshots: [DisplaySnapshot], kind: RegionSelectionKind) async throws -> CaptureTarget { throw CaptureError.cancelled }
+    func pickTarget(on snapshots: [DisplaySnapshot], finder: any PickTargetFinder) async throws -> CaptureTarget {
+        framed = finder.pinnedCandidate
+        guard click, let framed, case .window(let id) = framed.kind else { throw CaptureError.cancelled }
+        return .window(id)
+    }
+}
+
 struct ActiveWindowTests {
-    @Test func capturesWindowFromProvider() async throws {
+    private let displays: @Sendable () async -> [DisplayInfo] = { [DisplayInfo(id: 1, frame: CGRect(x: 0, y: 0, width: 20, height: 10))] }
+
+    @Test func capturesTheFramedWindowOnClick() async throws {
         let grabber = TargetRecorder()
-        let mode = ActiveWindowCaptureMode(windowProvider: { 99 })
+        let selector = ClickStub(click: true)
+        let mode = ActiveWindowCaptureMode(windowProvider: { 99 }, selector: selector, displaysProvider: displays)
         _ = try await mode.run(CaptureContext(grabber: grabber, includeCursor: false))
         #expect(await grabber.target == .window(99))
+        #expect(await selector.framed?.kind == .window(99))      // the window was framed before any click
+    }
+
+    @Test func escapeCapturesNothing() async {
+        let mode = ActiveWindowCaptureMode(windowProvider: { 99 }, selector: ClickStub(click: false), displaysProvider: displays)
+        await #expect(throws: CaptureError.cancelled) {
+            _ = try await mode.run(CaptureContext(grabber: FlatGrabber(), includeCursor: false))
+        }
+    }
+
+    @Test func pinnedFinderKeepsTheWindowFramedWhereverThePointerIs() {
+        let finder = PinnedWindowFinder(windowID: 5, bounds: CGRect(x: 10, y: 10, width: 100, height: 100))
+        #expect(finder.pinnedCandidate?.kind == .window(5))
+        #expect(finder.candidates(at: CGPoint(x: 50, y: 50)).count == 1)
+        #expect(finder.candidates(at: CGPoint(x: 500, y: 500)).isEmpty)
     }
 
     @Test func failsClearlyWhenNoWindow() async {

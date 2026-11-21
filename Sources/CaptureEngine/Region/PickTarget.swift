@@ -23,6 +23,50 @@ public struct PickCandidate: Sendable, Equatable {
 /// ending with the window itself.
 public protocol PickTargetFinder: Sendable {
     func candidates(at globalPoint: CGPoint) -> [PickCandidate]
+    /// A candidate that is framed from the start and stays framed wherever the pointer goes (the active window).
+    /// Clicking inside it captures it; hovering never changes it. Nil for ordinary hover picking.
+    var pinnedCandidate: PickCandidate? { get }
+    /// Text for the hint at the bottom of the overlay when a candidate is pinned.
+    var pinnedHint: String? { get }
+}
+
+public extension PickTargetFinder {
+    var pinnedCandidate: PickCandidate? { nil }
+    var pinnedHint: String? { nil }
+}
+
+/// Frames the window under the pointer, on whichever display the pointer is on (windows only, no inner elements).
+/// Moving the pointer to another screen moves the frame to that screen's window.
+public struct WindowOnlyFinder: PickTargetFinder {
+    public let pinnedHint: String?
+    public init(hint: String? = nil) { pinnedHint = hint }
+
+    public func candidates(at point: CGPoint) -> [PickCandidate] {
+        let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        for window in info {
+            guard let pid = window[kCGWindowOwnerPID as String] as? Int32, pid != ProcessInfo.processInfo.processIdentifier,
+                  (window[kCGWindowLayer as String] as? Int) == 0,
+                  (window[kCGWindowAlpha as String] as? Double ?? 1) > 0,
+                  let dict = window[kCGWindowBounds as String] as? [String: Any],
+                  let bounds = CGRect(dictionaryRepresentation: dict as CFDictionary),
+                  bounds.width >= 50, bounds.height >= 50, bounds.contains(point),
+                  let number = window[kCGWindowNumber as String] as? Int else { continue }
+            return [PickCandidate(kind: .window(CGWindowID(number)), rect: bounds)]
+        }
+        return []
+    }
+}
+
+/// Offers exactly one window, framed immediately: the "capture active window" confirmation step.
+public struct PinnedWindowFinder: PickTargetFinder {
+    public let window: PickCandidate
+    public let pinnedHint: String?
+    public init(windowID: CGWindowID, bounds: CGRect, hint: String? = nil) {
+        window = PickCandidate(kind: .window(windowID), rect: bounds)
+        pinnedHint = hint
+    }
+    public func candidates(at globalPoint: CGPoint) -> [PickCandidate] { window.rect.contains(globalPoint) ? [window] : [] }
+    public var pinnedCandidate: PickCandidate? { window }
 }
 
 /// Which candidate is currently highlighted. Up/Down arrows walk outwards/inwards.

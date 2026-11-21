@@ -101,7 +101,13 @@ private final class RegionSelectionSession {
             window.orderFrontRegardless()
         }
         windows[keyIndex].makeKeyAndOrderFront(nil)
-        NSCursor.crosshair.set()
+        // The pointer belongs to whichever app was active when the hotkey fired, so set ours now and again once the overlay
+        // is really key (the first set can be overridden while the app is still activating).
+        let cursor = views[keyIndex].captureCursor
+        for window in windows { window.invalidateCursorRects(for: window.contentView ?? NSView()) }
+        cursor.set()
+        DispatchQueue.main.async { cursor.set() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { cursor.set() }
     }
 
     /// Windows are captured as windows; elements become a rectangle in this display's points.
