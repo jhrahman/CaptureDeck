@@ -27,6 +27,7 @@ struct SettingsView: View {
             Divider()
             HStack(spacing: 10) {
                 Button("Reset All Settings…") { confirmResetAll = true }
+                Text(AppInfo.nameAndVersion).font(.caption).foregroundStyle(.secondary).padding(.leading, 6)
                 Spacer()
                 status
                 Button("Revert") { revert() }

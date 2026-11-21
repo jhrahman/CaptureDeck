@@ -48,6 +48,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let menu = NSMenu()
         menu.delegate = self
 
+        // The app's name and version, as the first line of the menu.
+        let about = NSMenuItem(title: AppInfo.nameAndVersion, action: nil, keyEquivalent: "")
+        about.isEnabled = false
+        menu.addItem(about)
+        menu.addItem(.separator())
+
         // One item per registered capture mode, showing its current shortcut.
         for mode in coordinator.modes {
             let item = NSMenuItem(title: mode.title, action: #selector(capture(_:)), keyEquivalent: "")

@@ -1,8 +1,79 @@
+# ---- macOS ----
 .DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+Icon?
+
+# ---- Swift Package Manager ----
 .build/
 .swiftpm/
+/Packages
+*.resolved.bak
+
+# ---- Xcode ----
 build/
-*.xcodeproj/xcuserdata/
-xcuserdata/
 DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcworkspace/xcuserdata/
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM
+*.dSYM.zip
 *.icns
+
+# ---- Release outputs (built by scripts/package-release.sh) ----
+dist/
+*.dmg
+*.pkg
+*.app
+
+# ---- Editors and IDEs ----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-workspace
+
+# ---- AI coding tools ----
+.claude/
+CLAUDE.md
+.cursor/
+
+# ---- Secrets and signing material: never commit ----
+.env
+.env.*
+*.pem
+*.p12
+*.pfx
+*.key
+*.keychain
+*.keychain-db
+*.mobileprovision
+*.provisionprofile
+*.cer
+credentials.json
+secrets.*
+.netrc
+
+# ---- Logs, caches and local debug output ----
+*.log
+scroll-debug/
+.cache/
+
+# ---- Private project notes (kept on disk, not published) ----
+Project Plan.md
