@@ -1,4 +1,5 @@
 import AppKit
+import DesignSystem
 import Combine
 import CoreModels
 import EditorEngine
@@ -41,7 +42,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         window.toolbar = toolbar
         window.toolbarStyle = .unified
         window.isOpaque = false                     // glass: the desktop shows through the window's materials
-        window.backgroundColor = .clear
+        window.backgroundColor = Theme.surface      // shows only in the title bar and toolbar strip, which stay solid
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none        // the title bar and the glass ribbon read as one surface
 

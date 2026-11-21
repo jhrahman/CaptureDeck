@@ -1,4 +1,5 @@
 import AppKit
+import DesignSystem
 import Platform
 import Settings
 import SwiftUI
@@ -23,7 +24,7 @@ public final class SettingsWindowController: NSObject, NSWindowDelegate {
             window.setContentSize(NSSize(width: 660, height: 600))
             window.isReleasedWhenClosed = false
             window.isOpaque = false                  // glass: the desktop shows through the window
-            window.backgroundColor = .clear
+            window.backgroundColor = Theme.surface   // shows only in the title bar, which stays solid
             window.titlebarAppearsTransparent = true
             window.titlebarSeparatorStyle = .none
             window.delegate = self
