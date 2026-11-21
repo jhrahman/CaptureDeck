@@ -39,6 +39,16 @@ public enum FilenameTemplate {
         return sanitize(out)
     }
 
+    /// The name for a new capture: the template filled in for `date`. If the template has a counter (`####`), it is the first number
+    /// whose file does not exist yet (`exists` is asked about each candidate name, without an extension).
+    public static func suggestedName(template: String, date: Date = Date(), exists: (String) -> Bool = { _ in false }) -> String {
+        let template = template.isEmpty ? defaultTemplate : template
+        guard hasSequence(template) else { return render(template, date: date) }
+        var number = 1
+        while number < 100_000, exists(render(template, date: date, sequence: number)) { number += 1 }
+        return render(template, date: date, sequence: number)
+    }
+
     /// File names cannot contain `/` or `:`, and should not be empty or start with a dot.
     static func sanitize(_ name: String) -> String {
         var s = name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")

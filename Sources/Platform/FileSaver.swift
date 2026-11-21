@@ -25,6 +25,17 @@ public enum ImageFileFormat: String, CaseIterable, Sendable {
         }
     }
 
+    /// "PNG", "JPEG", "TIFF": how the format is named in the interface.
+    public var displayName: String {
+        switch self {
+        case .png: "PNG"
+        case .jpeg: "JPEG"
+        case .tiff: "TIFF"
+        }
+    }
+
+    public var contentType: UTType { type }
+
     var type: UTType {
         switch self {
         case .png: .png

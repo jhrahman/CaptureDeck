@@ -100,3 +100,40 @@ struct LoginItemTests {
         #expect(LoginItem.explanation(for: .unavailable) != nil)
     }
 }
+
+struct ClipboardSizeTests {
+    private func image(_ w: Int, _ h: Int) -> CapturedImage {
+        let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        return CapturedImage(cgImage: ctx.makeImage()!, scale: 2)
+    }
+
+    @Test func aVeryTallScrollingCaptureIsCopiedAsPNGOnly() throws {
+        #expect(!ClipboardManager.fitsAsTIFF(image(3840, 22824)))
+        #expect(ClipboardManager.fitsAsTIFF(image(3840, 2160)))
+        let board = NSPasteboard(name: NSPasteboard.Name("test-\(UUID().uuidString)"))
+        defer { board.releaseGlobally() }
+        try ClipboardManager(pasteboard: board).copy(image(400, 20_000))       // 8M pixels: both formats
+        #expect(board.data(forType: .png) != nil)
+    }
+}
+
+struct SuggestedNameTests {
+    private let date = Date(timeIntervalSince1970: 1_800_000_000)
+
+    @Test func aTemplateWithoutACounterIsJustFilledIn() {
+        let name = FilenameTemplate.suggestedName(template: "Shot $Y-$M-$D", date: date)
+        #expect(name.hasPrefix("Shot 20"))
+        #expect(!name.contains("$"))
+    }
+
+    @Test func aCounterSkipsNamesThatAlreadyExist() {
+        let taken: Set<String> = ["Capture 0001", "Capture 0002"]
+        #expect(FilenameTemplate.suggestedName(template: "Capture ####", date: date) { taken.contains($0) } == "Capture 0003")
+        #expect(FilenameTemplate.suggestedName(template: "Capture ####", date: date) == "Capture 0001")
+    }
+
+    @Test func anEmptyTemplateFallsBackToTheDefault() {
+        #expect(FilenameTemplate.suggestedName(template: "", date: date).hasPrefix("Screenshot"))
+    }
+}

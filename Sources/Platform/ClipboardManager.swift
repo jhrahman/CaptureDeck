@@ -18,11 +18,20 @@ public struct ClipboardManager {
 
     public func copy(_ image: CapturedImage) throws {
         let png = try ImageEncoding.pngData(for: image)
-        let tiff = try ImageEncoding.tiffData(for: image)
         pasteboard.clearContents()
-        guard pasteboard.setData(png, forType: .png), pasteboard.setData(tiff, forType: .tiff) else {
-            throw ClipboardError.writeFailed
-        }
+        guard pasteboard.setData(png, forType: .png) else { throw ClipboardError.writeFailed }
+        // TIFF is uncompressed (4 bytes per pixel), only for older apps. A very tall scrolling capture would be hundreds of
+        // megabytes, which the pasteboard refuses, so it gets the PNG alone.
+        if Self.fitsAsTIFF(image) { _ = pasteboard.setData(try ImageEncoding.tiffData(for: image), forType: .tiff) }
+    }
+}
+
+extension ClipboardManager {
+    /// Largest picture (in pixels) that is also offered as TIFF.
+    static let maxTIFFPixels = 24_000_000
+
+    static func fitsAsTIFF(_ image: CapturedImage) -> Bool {
+        image.cgImage.width * image.cgImage.height <= maxTIFFPixels
     }
 }
 
