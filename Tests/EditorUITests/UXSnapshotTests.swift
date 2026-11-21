@@ -78,3 +78,79 @@ struct UXSnapshotTests {
         try Self.render(controller, width: 1100, height: 520, dark: true, name: "area-selected")
     }
 }
+
+@MainActor
+struct DirectManipulationTests {
+    private func context(_ doc: EditorDocument) -> ToolContext {
+        ToolContext(document: doc, zoom: 1, style: EditorToolRegistry.arrow.defaultStyle, host: nil)
+    }
+
+    @Test func lineDefaultsToFive() {
+        #expect(EditorToolRegistry.line.defaultStyle.lineWidth == 5)
+        #expect(EditorToolRegistry.arrow.defaultStyle.lineWidth == 5)
+        #expect(EditorToolRegistry.doubleArrow.defaultStyle.lineWidth == 5)
+    }
+
+    @Test func deselectedObjectsAreGrabbedFromDrawingTools() {
+        let doc = EditorDocument(original: UXSnapshotTests.sampleImage(), title: "t")
+        let arrow = Annotation(shape: LineShape(start: CGPoint(x: 300, y: 400), end: CGPoint(x: 700, y: 300)), style: EditorToolRegistry.arrow.defaultStyle)
+        let rect = Annotation(shape: RectangleShape(rect: CGRect(x: 200, y: 500, width: 200, height: 100)), style: EditorToolRegistry.rectangle.defaultStyle)
+        let blur = Annotation(shape: BlurShape(rect: CGRect(x: 900, y: 500, width: 200, height: 100)), style: EditorToolRegistry.blur.defaultStyle)
+        for a in [arrow, rect, blur] { doc.addAnnotation(a) }
+        doc.clearAnnotationSelection()
+        let pointer = PointerTool()
+        let ctx = context(doc)
+        let onArrow = CGPoint(x: 500, y: 350), onRectEdge = CGPoint(x: 200, y: 550), empty = CGPoint(x: 1200, y: 100), onBlur = CGPoint(x: 1000, y: 550)
+        #expect(pointer.grabs(onArrow, context: ctx))
+        #expect(pointer.grabs(onRectEdge, context: ctx))
+        #expect(!pointer.grabs(empty, context: ctx))
+        #expect(!pointer.grabs(onBlur, context: ctx))          // effects stay drawable-over
+        #expect(pointer.grabs(CGPoint(x: 900, y: 550), context: ctx))   // ...but can be grabbed by their edge
+        doc.selectAnnotations([blur.id])
+        #expect(pointer.grabs(onBlur, context: ctx))           // ...and anywhere inside once selected
+        doc.clearAnnotationSelection()
+        #expect(pointer.cursor(at: onArrow, context: ctx) == NSCursor.openHand)
+        // Click selects it, dragging moves it.
+        pointer.mouseDown(at: onArrow, context: ctx)
+        #expect(doc.selectedAnnotationIDs == [arrow.id])
+        pointer.mouseDragged(to: CGPoint(x: 520, y: 380), context: ctx)
+        pointer.mouseUp(at: CGPoint(x: 520, y: 380), context: ctx)
+        let moved = doc.annotations.first { $0.id == arrow.id }?.shape as? LineShape
+        #expect(moved?.start == CGPoint(x: 320, y: 430))
+        // Clicking empty space deselects.
+        pointer.mouseDown(at: empty, context: ctx); pointer.mouseUp(at: empty, context: ctx)
+        #expect(doc.selectedAnnotationIDs.isEmpty)
+    }
+
+    @Test func ribbonIconsAreTemplates() throws {
+        for tool in EditorToolRegistry.descriptors {
+            let image = try #require(ToolIcons.image(for: tool))
+            #expect(image.isTemplate)
+        }
+    }
+}
+
+@MainActor
+struct DeselectTests {
+    @Test func pressingEmptySpaceWithADrawingToolDeselects() throws {
+        let doc = EditorDocument(original: UXSnapshotTests.sampleImage(), title: "t")
+        let controller = EditorViewController(document: doc, settings: nil)
+        _ = controller.view
+        controller.selectTool(id: EditorToolRegistry.rectangle.id)
+        let line = Annotation(shape: LineShape(start: CGPoint(x: 300, y: 400), end: CGPoint(x: 700, y: 300)), style: EditorToolRegistry.arrow.defaultStyle)
+        doc.addAnnotation(line)
+        #expect(doc.selectedAnnotationIDs == [line.id])
+        let canvas = try #require(controller.view.firstDescendant(ofType: CanvasView.self))
+        let down = NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+        canvas.mouseDown(with: try #require(down))
+        #expect(doc.selectedAnnotationIDs.isEmpty)
+    }
+}
+
+private extension NSView {
+    func firstDescendant<T: NSView>(ofType type: T.Type) -> T? {
+        if let match = self as? T { return match }
+        for sub in subviews { if let found = sub.firstDescendant(ofType: type) { return found } }
+        return nil
+    }
+}

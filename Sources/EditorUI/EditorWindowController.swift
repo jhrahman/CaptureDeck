@@ -62,13 +62,18 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     @objc func flipVertical(_ sender: Any?) { editorDocument.apply(.flipVertical) }
     @objc func zoomIn(_ sender: Any?) { viewController.scrollView.zoom(by: 1.25) }
     @objc func zoomOut(_ sender: Any?) { viewController.scrollView.zoom(by: 0.8) }
-    @objc func zoomFit(_ sender: Any?) { viewController.scrollView.zoomToFit() }
+    @objc func zoomFit(_ sender: Any?) { viewController.scrollView.zoomToFit(animated: true) }
     @objc func zoomActual(_ sender: Any?) { viewController.scrollView.zoomActualSize() }
 
     /// Copies the selected area if there is one, otherwise the whole picture.
     @objc func copyImage(_ sender: Any?) {
         let image = editorDocument.selectionImage() ?? editorDocument.flattenedImage()
-        do { try ClipboardManager().copy(image) } catch { NSSound.beep() }
+        do {
+            try ClipboardManager().copy(image)
+            let px = image.pixelSize
+            let what = editorDocument.selection != nil ? "Selection copied" : "Image copied"
+            ToastView.show("\(what) to clipboard  ·  \(Int(px.width)) × \(Int(px.height))", in: window)
+        } catch { NSSound.beep() }
     }
 
     // MARK: Resize, canvas size, rotate by angle (dialogs)
@@ -133,6 +138,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     @objc func selectEverything(_ sender: Any?) { editorDocument.selectAll() }
     @objc func deselect(_ sender: Any?) { editorDocument.clearSelection() }
     @objc func cropToSelection(_ sender: Any?) { editorDocument.cropToSelection() }
+    @objc func deleteSelectedArea(_ sender: Any?) { viewController.eraseArea() }
+    @objc func fillSelectedArea(_ sender: Any?) { viewController.fillArea() }
 
     @objc func duplicateSelection(_ sender: Any?) {
         guard let image = editorDocument.selectionImage() else { return }
@@ -159,14 +166,22 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     func saveAs(completion: @escaping (Bool) -> Void) {
         guard let window else { return completion(false) }
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.png, .jpeg, .tiff]
         panel.canCreateDirectories = true
         panel.nameFieldStringValue = editorDocument.title
+        // Format picker, so the chosen file type (PNG / JPEG / TIFF) is always visible and changeable.
+        let configuredFormat = store.flatMap { ImageFileFormat(rawValue: $0.settings.string("capture.format")) }
+        let picker = FormatPicker(panel: panel, initial: editorDocument.fileURL.flatMap { ImageFileFormat(fileExtension: $0.pathExtension) } ?? configuredFormat ?? .png)
+        panel.accessoryView = picker.view
+        panel.isExtensionHidden = false
+        // Starts in the file's own folder, else in the "Save folder" from Settings > Output (when it exists), else Pictures.
+        let configured = store?.saveFolder
+        let configuredExists = configured.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
         panel.directoryURL = editorDocument.fileURL?.deletingLastPathComponent()
+            ?? (configuredExists ? configured : nil)
             ?? FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, var url = panel.url else { return completion(false) }
-            if ImageFileFormat(fileExtension: url.pathExtension) == nil { url.appendPathExtension("png") }
+            if ImageFileFormat(fileExtension: url.pathExtension) == nil { url.appendPathExtension(picker.format.fileExtension) }
             self?.write(to: url, completion: completion)
         }
     }
@@ -179,6 +194,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             editorDocument.title = url.deletingPathExtension().lastPathComponent
             editorDocument.markSaved()
             window?.isDocumentEdited = false
+            ToastView.show("Saved as \(format.displayName)  ·  \(url.lastPathComponent)", in: window)
             completion(true)
         } catch {
             let alert = NSAlert()
@@ -233,7 +249,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             return true
         case #selector(duplicateObjects(_:)), #selector(deleteObjects(_:)), #selector(bringObjectsToFront(_:)), #selector(sendObjectsToBack(_:)):
             return !editorDocument.selectedAnnotationIDs.isEmpty
-        case #selector(deselect(_:)), #selector(cropToSelection(_:)), #selector(duplicateSelection(_:)):
+        case #selector(deselect(_:)), #selector(cropToSelection(_:)), #selector(duplicateSelection(_:)),
+             #selector(deleteSelectedArea(_:)), #selector(fillSelectedArea(_:)):
             return editorDocument.selection != nil
         case #selector(chooseTool(_:)):
             item.state = (item.representedObject as? String) == viewController.activeTool.descriptor.id ? .on : .off
@@ -314,4 +331,48 @@ private extension NSToolbarItem.Identifier {
     static let zoomActual = Self("zoomActual")
     static let copy = Self("copy")
     static let save = Self("save")
+}
+
+
+/// The "Format" pop-up in the Save panel. Choosing a format updates the file type and the extension in the name field.
+@MainActor
+private final class FormatPicker: NSObject {
+    private(set) var format: ImageFileFormat
+    private weak var panel: NSSavePanel?
+    private let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+    let view = NSView()
+
+    init(panel: NSSavePanel, initial: ImageFileFormat) {
+        self.panel = panel
+        self.format = initial
+        super.init()
+        for format in ImageFileFormat.allCases { popup.addItem(withTitle: format.displayName) }
+        popup.selectItem(at: ImageFileFormat.allCases.firstIndex(of: initial) ?? 0)
+        popup.target = self
+        popup.action = #selector(changed)
+        let label = NSTextField(labelWithString: "Format:")
+        let stack = NSStackView(views: [label, popup])
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            stack.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
+            stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -8),
+        ])
+        view.frame = NSRect(x: 0, y: 0, width: 320, height: 40)
+        apply()
+    }
+
+    @objc private func changed() {
+        format = ImageFileFormat.allCases[max(popup.indexOfSelectedItem, 0)]
+        apply()
+    }
+
+    private func apply() {
+        guard let panel else { return }
+        panel.allowedContentTypes = [format.contentType]
+        let base = (panel.nameFieldStringValue as NSString).deletingPathExtension
+        panel.nameFieldStringValue = base + "." + format.fileExtension
+    }
 }

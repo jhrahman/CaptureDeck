@@ -14,6 +14,10 @@ struct ToolContext {
     var host: (any ToolHost)?
     /// 1 for a single click, 2 for a double-click.
     var clickCount = 1
+    /// Rectangle select: crop the picture the moment a dragged edge or corner is released (no Crop button needed).
+    var cropOnSelectionDrag = false
+    /// Rectangle select: keep the whole picture selected, so every edge can be dragged (also again after a crop).
+    var keepWholeImageSelected = false
 
     /// A distance measured in screen points, expressed in image pixels.
     func imagePixels(forScreenPoints points: CGFloat) -> CGFloat { points / max(zoom, 0.0001) * (NSScreen.main?.backingScaleFactor ?? 2) }
@@ -30,6 +34,8 @@ enum TextEditKind {
 protocol ToolHost: AnyObject {
     /// Opens the inline text editor over `rect` (image pixels). `annotationID` is set when editing existing text.
     func editText(annotationID: UUID?, rect: CGRect, text: String, style: AnnotationStyle, kind: TextEditKind)
+    /// The Eyedropper picked this colour (the editor makes it the Paint Bucket's colour and switches to it).
+    func pickedColor(_ color: RGBAColor)
 }
 
 /// A tool the user can pick. Tools are added by registering them in `EditorToolRegistry`; the toolbar, the Tools menu,
@@ -55,6 +61,34 @@ extension EditorTool {
     var previewAnnotations: [Annotation] { [] }
 }
 
+/// A tool that also draws on top of the picture and reacts to the pointer before any button is pressed (Hide Text highlights the
+/// words it found). Points are in image pixels.
+@MainActor
+protocol OverlayTool: EditorTool {
+    func drawOverlay(in context: CGContext, unit: CGFloat)
+    /// The pointer moved with no button down. Returns true if the overlay must be redrawn.
+    func pointerMoved(to point: CGPoint, context: ToolContext) -> Bool
+    /// Set by the canvas: the tool calls it when its overlay or status changes by itself (text detection finished).
+    var overlayChanged: (() -> Void)? { get set }
+    /// A line for the options bar ("Reading text…", "23 words found").
+    var statusText: String { get }
+    /// An extra button for the options bar, if the tool has one.
+    var barButton: (title: String, symbol: String)? { get }
+    func pressBarButton(context: ToolContext)
+    /// The part of the picture the overlay currently covers, so only that is redrawn when the pointer moves. Nil = all of it.
+    var overlayRect: CGRect? { get }
+    /// The tool was chosen (or the picture changed): get ready, for example start reading the text.
+    func prepare(context: ToolContext)
+}
+
+extension OverlayTool {
+    var statusText: String { "" }
+    var barButton: (title: String, symbol: String)? { nil }
+    func pressBarButton(context: ToolContext) {}
+    func prepare(context: ToolContext) {}
+    var overlayRect: CGRect? { nil }
+}
+
 /// A look setting the properties bar can show for a tool.
 public enum StyleProperty: String, Sendable, CaseIterable {
     case stroke, fill, width
@@ -68,6 +102,8 @@ public enum StyleProperty: String, Sendable, CaseIterable {
     case zoom
     /// Text color inside bubbles.
     case textColor
+    /// How a redaction hides things: blur, pixelate or a solid cover.
+    case redaction
 }
 
 public struct EditorToolDescriptor: Sendable, Identifiable, Equatable {
@@ -123,6 +159,7 @@ public enum EditorToolRegistry {
     private static let lineTitles: [StyleProperty: String] = [.endHead: "Head", .startHead: "Tail"]
     public static let line = EditorToolDescriptor(
         id: "line", title: "Line", symbol: "line.diagonal", key: "l", kind: .draw, styleProperties: lineProperties,
+        defaultStyle: AnnotationStyle(strokeColor: AnnotationStyle.defaultStroke, lineWidth: 5),
         iconColor: "#64D2FF", propertyTitles: lineTitles)
     public static let arrow = EditorToolDescriptor(
         id: "arrow", title: "Arrow", symbol: "arrow.up.right", key: "a", kind: .draw, styleProperties: lineProperties,
@@ -175,6 +212,20 @@ public enum EditorToolRegistry {
         styleProperties: [.stroke, .strength, .opacity],
         defaultStyle: AnnotationStyle(strokeColor: RGBAColor(hex: "#34C759FF") ?? .black, strength: 20),
         iconColor: "#FB7185", propertyTitles: [.stroke: "Fill color", .strength: "Tolerance"])
+    private static let redactionTitles: [StyleProperty: String] = [.width: "Brush", .redaction: "Hide with", .strength: "Strength", .stroke: "Cover"]
+    public static let redactBrush = EditorToolDescriptor(
+        id: "redactBrush", title: "Redact Brush", symbol: "paintbrush.pointed", key: "e", kind: .draw,
+        styleProperties: [.width, .redaction, .strength, .stroke, .opacity],
+        defaultStyle: AnnotationStyle(strokeColor: .black, lineWidth: 30, strength: 14, redaction: .blur),
+        iconColor: "#64748B", propertyTitles: redactionTitles)
+    public static let hideText = EditorToolDescriptor(
+        id: "hideText", title: "Hide Text", symbol: "text.viewfinder", key: "w", kind: .draw,
+        styleProperties: [.redaction, .strength, .stroke],
+        defaultStyle: AnnotationStyle(strokeColor: .black, strength: 14, redaction: .solid),
+        iconColor: "#475569", propertyTitles: redactionTitles)
+    public static let pickColor = EditorToolDescriptor(
+        id: "pickColor", title: "Pick Color", symbol: "eyedropper", key: "y", kind: .draw, styleProperties: [],
+        iconColor: "#F59E0B")
     public static let blur = EditorToolDescriptor(
         id: "blur", title: "Blur", symbol: "drop.fill", key: "b", kind: .draw, styleProperties: [.strength],
         defaultStyle: AnnotationStyle(strokeColor: AnnotationStyle.defaultStroke, strength: 12),
@@ -191,13 +242,13 @@ public enum EditorToolRegistry {
         [rectangle, roundedRectangle, ellipse],
         [line, arrow, doubleArrow, pencil],
         [text, callout, ovalCallout, step, stepLetter],
-        [highlighter, fill, blur, pixelate, spotlight, magnifier],
+        [highlighter, redactBrush, hideText, pickColor, fill, blur, pixelate, spotlight, magnifier],
     ]
 
     /// Which tool draws each kind of shape, so selecting a shape can show that tool's properties and names.
     static let toolForShapeType: [String: EditorToolDescriptor] = [
         "rectangle": rectangle, "ellipse": ellipse, "line": line, "pencil": pencil, "highlighter": highlighter,
-        "text": text, "callout": callout, "step": step, "fill": fill, "blur": blur, "pixelate": pixelate, "spotlight": spotlight, "magnifier": magnifier,
+        "text": text, "callout": callout, "step": step, "fill": fill, "blur": blur, "pixelate": pixelate, "redactBrush": redactBrush, "spotlight": spotlight, "magnifier": magnifier,
     ]
 
     /// The properties that make sense for the selected shapes (the union, in the usual order) and their names.
@@ -245,6 +296,9 @@ public enum EditorToolRegistry {
             StepTool(step, letters: false),
             StepTool(stepLetter, letters: true),
             ShapeDragTool(highlighter) { a, b, square in HighlighterShape(rect: ShapeDragTool.rect(a, b, square: square)) },
+            RedactBrushTool(),
+            HideTextTool(),
+            EyedropperTool(),
             FillTool(),
             ShapeDragTool(blur) { a, b, _ in BlurShape(rect: ShapeDragTool.rect(a, b, square: false)) },
             ShapeDragTool(pixelate) { a, b, _ in PixelateShape(rect: ShapeDragTool.rect(a, b, square: false)) },
@@ -280,6 +334,7 @@ public enum ToolStyleSetting {
             case .textColor: style.textColor = RGBAColor(hex: settings.string(key)) ?? style.textColor
             case .startHead: style.startHead = ArrowHeadStyle(rawValue: settings.string(key)) ?? style.startHead
             case .endHead: style.endHead = ArrowHeadStyle(rawValue: settings.string(key)) ?? style.endHead
+            case .redaction: style.redaction = RedactionMode(rawValue: settings.string(key)) ?? style.redaction
             }
         }
         return style
@@ -306,6 +361,7 @@ public enum ToolStyleSetting {
             case .textColor: settings.set(style.textColor.hex, for: key)
             case .startHead: settings.set(style.startHead.rawValue, for: key)
             case .endHead: settings.set(style.endHead.rawValue, for: key)
+            case .redaction: settings.set(style.redaction.rawValue, for: key)
             }
         }
     }

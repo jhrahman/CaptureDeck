@@ -1,3 +1,4 @@
+import CoreModels
 import AppKit
 import Combine
 import DesignSystem
@@ -12,6 +13,9 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
     let scrollView = ZoomScrollView(frame: .zero)
     private let canvas = CanvasView(frame: .zero)
     private let statusLabel = NSTextField(labelWithString: "")
+    private let zoomModel = ZoomModel()
+    /// The colour last picked for the Paint Bucket (used when there is no saved setting to hold it).
+    private var bucketColor: RGBAColor?
     private var cancellables = Set<AnyCancellable>()
     private let settings: SettingsStore?
     private let tools = EditorToolRegistry.makeTools()
@@ -34,7 +38,7 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
     init(document: EditorDocument, settings: SettingsStore?) {
         self.document = document
         self.settings = settings
-        let preferred = settings?.string("editor.defaultTool")
+        let preferred = settings?.string("editor.defaultTool") ?? EditorToolRegistry.defaultToolID
         let tools = self.tools
         activeTool = tools.first { $0.descriptor.id == preferred } ?? tools[0]
         super.init(nibName: nil, bundle: nil)
@@ -47,13 +51,21 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.documentView = canvas
 
-        let bar = NSView()
+        let bar = StatusBarBackground()
         bar.translatesAutoresizingMaskIntoConstraints = false
-        bar.wantsLayer = true
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
         statusLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
         statusLabel.textColor = Theme.textSecondary
         bar.addSubview(statusLabel)
+
+        // Zoom control, bottom-left.
+        zoomModel.onSlide = { [weak self] percent in self?.scrollView.zoom(toPercent: percent, animated: false) }
+        zoomModel.onStep = { [weak self] zoomIn in self?.scrollView.zoom(by: zoomIn ? 1.25 : 0.8) }
+        zoomModel.onFit = { [weak self] in self?.scrollView.zoomToFit(animated: true) }
+        zoomModel.onPercent = { [weak self] percent in self?.scrollView.zoom(toPercent: percent) }
+        let zoomHost = NSHostingView(rootView: ZoomBar(model: zoomModel))
+        zoomHost.translatesAutoresizingMaskIntoConstraints = false
+        bar.addSubview(zoomHost)
 
         let options = NSHostingView(rootView: ToolOptionsView(model: optionsModel))
         options.translatesAutoresizingMaskIntoConstraints = false
@@ -86,8 +98,10 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
             bar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             bar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             bar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            bar.heightAnchor.constraint(equalToConstant: 24),
-            statusLabel.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 12),
+            bar.heightAnchor.constraint(equalToConstant: 30),
+            zoomHost.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 8),
+            zoomHost.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            statusLabel.leadingAnchor.constraint(equalTo: zoomHost.trailingAnchor, constant: 14),
             statusLabel.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
         ])
         view = container
@@ -97,16 +111,23 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
         super.viewDidLoad()
         show(document.workingImage.cgImage)
 
+        selectWholePictureIfWanted()
         canvas.activeTool = activeTool
         canvas.toolContext = { [weak self] in
             guard let self else { return ToolContext(document: EditorDocument(original: .placeholder, title: ""), zoom: 1, style: .default) }
-            return ToolContext(document: self.document,
-                               zoom: self.scrollView.magnification * (self.view.window?.backingScaleFactor ?? 2),
-                               style: self.currentToolStyle(), host: self)
+            var context = ToolContext(document: self.document,
+                                      zoom: self.scrollView.magnification * (self.view.window?.backingScaleFactor ?? 2),
+                                      style: self.currentToolStyle(), host: self)
+            context.cropOnSelectionDrag = self.settings?.bool("editor.cropOnDrag") ?? true
+            context.keepWholeImageSelected = self.settings?.bool("editor.selectAllOnOpen") ?? true
+            return context
         }
         canvas.previewProvider = { [weak self] in self?.activeTool.previewAnnotations ?? [] }
         optionsModel.$wraps.removeDuplicates()
             .sink { [weak self] wraps in self?.applyOptionsHeight(wraps: wraps) }.store(in: &cancellables)
+        canvas.onToolStatusChanged = { [weak self] in self?.syncOptions() }
+        canvas.onPickColor = { [weak self] color in self?.applyPickedColor(color, switchToBucket: false) }
+        canvas.onExitTool = { [weak self] in self?.leaveCurrentTool() }
         canvas.onObjectAction = { [weak self] action in self?.perform(action) }
         canvas.onSelectObject = { [weak self] point in
             guard let self, let hit = self.document.annotation(at: point, tolerance: 6 / max(self.scrollView.magnification, 0.01)) else { return false }
@@ -166,16 +187,103 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
 
     // MARK: Tools
 
+    /// A new picture opens fully selected (when the Rectangle Select tool is the one in use and the setting is on), so its
+    /// corners and edges can be dragged straight away.
+    private func selectWholePictureIfWanted() {
+        guard document.startsWithFullSelection, document.selection == nil,
+              activeTool.descriptor.id == EditorToolRegistry.rectangleSelect.id,
+              settings?.bool("editor.selectAllOnOpen") ?? true else { return }
+        document.selectAll()
+    }
+
+    // MARK: Leaving a tool, and the selected area
+
+    /// Esc arriving through the responder chain (when focus is not on the canvas): the same as Esc on the canvas.
+    override func cancelOperation(_ sender: Any?) {
+        if activeTool.descriptor.kind == .draw, document.selectedAnnotationIDs.isEmpty { leaveCurrentTool(); return }
+        if !document.selectedAnnotationIDs.isEmpty { document.clearAnnotationSelection(); return }
+        if document.selection != nil { document.clearSelection() }
+    }
+
+    /// What the tests use: a key press on the canvas.
+    func simulateKey(_ keyCode: UInt16) {
+        guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: view.window?.windowNumber ?? 0,
+                                           context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: keyCode) else { return }
+        canvas.keyDown(with: event)
+    }
+    var canvasHasFocus: Bool { view.window?.firstResponder === canvas }
+
+    /// Esc in a drawing tool: back to the tool images open with (Rectangle Select unless Settings says otherwise).
+    func leaveCurrentTool() {
+        let preferred = settings?.string("editor.defaultTool") ?? EditorToolRegistry.defaultToolID
+        let target = tools.first { $0.descriptor.id == preferred } ?? tools.first { $0.descriptor.id == EditorToolRegistry.defaultToolID }
+        guard let target, target !== activeTool else { return }
+        selectTool(id: target.descriptor.id)
+    }
+
+    /// Delete the selected area: those pixels become transparent, and the area stays selected so it can be filled next.
+    func eraseArea() {
+        guard document.selection != nil, document.eraseSelection() else { return }
+        ToastView.show("Area deleted · fill it with Fill, or the Paint Bucket", symbol: "trash", in: view.window)
+    }
+
+    /// Paint the selected area with the colour last picked (the Paint Bucket's colour).
+    func fillArea() {
+        guard document.selection != nil else { return }
+        var color = ToolStyleSetting.style(for: EditorToolRegistry.fill, settings: settings).strokeColor
+        if settings == nil, let bucketColor { color = bucketColor }
+        guard document.fillSelection(with: RGBAColor(red: color.red, green: color.green, blue: color.blue, alpha: 1)) else { return }
+    }
+
+    // MARK: Picked colours
+
+    /// What the tests look at.
+    var activeToolID: String { activeTool.descriptor.id }
+    var optionsStyle: AnnotationStyle { optionsModel.style }
+    var currentStyle: AnnotationStyle { currentToolStyle() }
+    func simulateOptionPick(_ color: RGBAColor) { canvas.onPickColor?(color) }
+    func simulatePointer(at point: CGPoint) { canvas.handlePointerMoved(to: point) }
+
+    /// The Eyedropper tool picked a colour.
+    func pickedColor(_ color: RGBAColor) { applyPickedColor(color, switchToBucket: true) }
+
+    /// A colour picked from the picture. From the Eyedropper tool it becomes the Paint Bucket's colour and the Paint Bucket is
+    /// chosen, ready to fill. Picked with Option held inside a colour tool, it becomes that tool's own colour and nothing else changes.
+    private func applyPickedColor(_ picked: RGBAColor, switchToBucket: Bool) {
+        let color = RGBAColor(red: picked.red, green: picked.green, blue: picked.blue, alpha: 1)
+        let hex = String(color.hex.prefix(7)).uppercased()
+        if switchToBucket {
+            var style = ToolStyleSetting.style(for: EditorToolRegistry.fill, settings: settings)
+            style.strokeColor = color
+            ToolStyleSetting.save(style, for: EditorToolRegistry.fill, settings: settings)
+            bucketColor = color
+            selectTool(id: EditorToolRegistry.fill.id)
+            syncOptions()
+            ToastView.show("Picked \(hex) · click a region to fill it", symbol: "eyedropper", in: view.window)
+        } else {
+            optionsModel.edit { $0.strokeColor = color }
+            ToastView.show("Picked \(hex)", symbol: "eyedropper", in: view.window)
+        }
+    }
+
     func selectTool(id: String) {
         finishTextEditing()
         guard let tool = tools.first(where: { $0.descriptor.id == id }), tool !== activeTool else { return }
         activeTool.deactivate()
+        // The whole-picture selection a new picture opens with is only for Rectangle Select: other tools start clean.
+        if tool.descriptor.id != EditorToolRegistry.rectangleSelect.id, case .rect(let area)? = document.selection, area == document.imageBounds {
+            document.clearSelection()
+        }
         activeTool = tool
         canvas.activeTool = tool
         ribbonModel.selectedID = tool.descriptor.id
         onToolChanged?(tool.descriptor)
+        if let overlay = tool as? OverlayTool, let context = canvas.toolContext?() { overlay.prepare(context: context) }   // e.g. start reading the text
         syncOptions()
         canvas.needsDisplay = true
+        // Clicking a button in the ribbon leaves keyboard focus on the ribbon; give it back to the picture, so Esc, Delete and the
+        // tool shortcut keys reach the canvas straight away.
+        if let window = view.window, window.firstResponder !== canvas { window.makeFirstResponder(canvas) }
     }
 
     // MARK: Inline text editing
@@ -275,7 +383,9 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
 
     /// The look new shapes get: the tool's remembered style from Settings.
     private func currentToolStyle() -> AnnotationStyle {
-        ToolStyleSetting.style(for: activeTool.descriptor, settings: settings)
+        var style = ToolStyleSetting.style(for: activeTool.descriptor, settings: settings)
+        if settings == nil, activeTool.descriptor.id == EditorToolRegistry.fill.id, let bucketColor { style.strokeColor = bucketColor }
+        return style
     }
 
     /// Refreshes the bar. The values passed in are the new ones; `@Published` fires before the property changes,
@@ -305,6 +415,8 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
             optionsModel.title = descriptor.title
             if descriptor.kind == .object { optionsModel.hint = "Click an object to select it. Drag to move it, or use the handles to resize." }
         }
+        optionsModel.toolStatus = (activeTool as? OverlayTool).flatMap { $0.statusText.isEmpty ? nil : $0.statusText }
+        optionsModel.toolButton = (activeTool as? OverlayTool)?.barButton
         optionsModel.isAreaTool = descriptor.kind == .pixelSelection
         optionsModel.areaSelection = descriptor.kind == .pixelSelection ? areaBounds(document.selection) : nil
         // The bar stays put for every tool, so the canvas does not jump when you switch tools or select.
@@ -381,6 +493,10 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
         case .copyArea: NSApp.sendAction(NSSelectorFromString("copyImage:"), to: nil, from: nil)
         case .deselectArea: document.clearSelection()
         case .selectAllArea: document.selectAll()
+        case .eraseArea: eraseArea()
+        case .fillArea: fillArea()
+        case .toolButton:
+            if let overlay = activeTool as? OverlayTool, let context = canvas.toolContext?() { overlay.pressBarButton(context: context) }
         case .bringToFront: document.reorderAnnotations(ids: ids, .toFront)
         case .sendToBack: document.reorderAnnotations(ids: ids, .toBack)
         }
@@ -421,11 +537,37 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
     private func updateStatus() {
         guard let image = shownImage else { return }
         let selection = shownSelection
-        var text = "\(image.width) × \(image.height) px     Zoom \(Int(scrollView.zoomPercent.rounded()))%"
+        zoomModel.percent = scrollView.zoomPercent
+        var text = "\(image.width) × \(image.height) px"
         if let selection {
             let box = selection.bounds
             text += "     Selection \(Int(box.width)) × \(Int(box.height)) at \(Int(box.minX)), \(Int(box.minY))"
         }
         statusLabel.stringValue = text
+    }
+}
+
+
+/// The strip along the bottom of the editor: the window's own background colour (it follows light and dark mode) and a thin
+/// line above it, so the zoom control and the picture's size read clearly on it.
+final class StatusBarBackground: NSView {
+    override var wantsUpdateLayer: Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func updateLayer() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.separatorColor.setFill()
+        NSRect(x: 0, y: bounds.maxY - 1, width: bounds.width, height: 1).fill()
     }
 }

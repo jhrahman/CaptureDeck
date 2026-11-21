@@ -54,7 +54,8 @@ struct StepToolTests {
 
     @Test func everyDrawingToolHasSettingsForEachOfItsProperties() {
         // Guards the "every tool is configurable" rule: a tool property with no stored default would be hard-coded.
-        for tool in EditorToolRegistry.descriptors where tool.kind == .draw {
+        // (The eyedropper paints nothing, so it has no look to configure.)
+        for tool in EditorToolRegistry.descriptors where tool.kind == .draw && tool.id != EditorToolRegistry.pickColor.id {
             #expect(!tool.styleProperties.isEmpty, "\(tool.title) has no editable properties")
             let ids = tool.styleProperties.map { ToolStyleSetting.id(tool, $0) }
             #expect(Set(ids).count == ids.count)

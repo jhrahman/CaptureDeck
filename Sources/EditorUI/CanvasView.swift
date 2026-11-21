@@ -1,4 +1,5 @@
 import AppKit
+import CoreModels
 import DesignSystem
 import EditorEngine
 
@@ -21,10 +22,29 @@ final class CanvasView: NSView {
     var annotations: [Annotation] = [] { didSet { needsDisplay = true } }
     var selectedAnnotationIDs: [UUID] = [] { didSet { needsDisplay = true } }
     var previewProvider: (() -> [Annotation])?
+    private var lastPreviewRect: CGRect?
+    private var lastOverlayRect: CGRect?
+    /// Where the pointer last was over the picture (image pixels), for the Option-to-pick magnifier.
+    private var lastPointer: CGPoint?
+    /// A colour was picked with Option held (the editor applies it to the active tool).
+    var onPickColor: ((RGBAColor) -> Void)?
+    /// Esc was pressed in a drawing tool with nothing to cancel: go back to the default tool.
+    var onExitTool: (() -> Void)?
     /// Annotations not drawn right now (the text being edited is shown by the inline editor instead).
     var hiddenAnnotationIDs: Set<UUID> = [] { didSet { needsDisplay = true } }
     var toolContext: (() -> ToolContext)?
-    var activeTool: (any EditorTool)?
+    var activeTool: (any EditorTool)? {
+        didSet {
+            (oldValue as? OverlayTool)?.overlayChanged = nil
+            (activeTool as? OverlayTool)?.overlayChanged = { [weak self] in
+                self?.needsDisplay = true
+                self?.onToolStatusChanged?()
+            }
+            needsDisplay = true
+        }
+    }
+    /// The active tool's status line or button changed (Hide Text finished reading the picture).
+    var onToolStatusChanged: (() -> Void)?
     var onToolKey: ((String) -> Bool)?       // single-letter tool switching
     var onCycleTool: ((Bool) -> Void)?       // Tab / Shift+Tab
 
@@ -48,40 +68,133 @@ final class CanvasView: NSView {
 
     private func imagePoint(_ event: NSEvent) -> CGPoint { convert(event.locationInWindow, from: nil) }
 
+    /// Whether pressing on an existing object picks it up instead of drawing. Drawing tools do this so objects can be moved
+    /// without switching tools, except the freehand ones (pencil, redact brush) and Hide Text: a press there always does the
+    /// tool's own job, even right on top of an earlier stroke. (Use the Select tool to move strokes.)
+    static func allowsGrabbing(from tool: any EditorTool) -> Bool {
+        tool.descriptor.kind == .draw && !(tool is FreehandTool) && !(tool is HideTextTool) && !(tool is EyedropperTool)
+    }
+
+    /// With a colour tool active, holding Option turns the pointer into an eyedropper: click to pick a colour from the picture
+    /// without leaving the tool. (Not Hide Text, where Option already means "the whole line".)
+    private var optionPicking: Bool {
+        guard NSEvent.modifierFlags.contains(.option), let tool = activeTool, tool.descriptor.kind == .draw, !(tool is HideTextTool),
+              !(tool is EyedropperTool) else { return false }
+        return tool.descriptor.styleProperties.contains(.stroke)
+    }
+
+    private func pixelSampler() -> PixelSampler? { image.flatMap { PixelSampler.shared(for: $0) } }
+
+    private var pickingUnit: CGFloat { 1 / max(enclosingScrollView?.magnification ?? 1, 0.0001) }
+
+    override func flagsChanged(with event: NSEvent) {
+        super.flagsChanged(with: event)
+        if let lastPointer {                                   // the magnifier appears or goes away as Option is pressed or released
+            setNeedsDisplay(ColorLoupe.area(around: lastPointer, unit: pickingUnit, bounds: bounds).union(CGRect(origin: lastPointer, size: .zero).insetBy(dx: -4, dy: -4)))
+        }
+        if let window, let point = window.mouseLocationOutsideOfEventStream as NSPoint? {
+            let local = convert(point, from: nil)
+            if bounds.contains(local) { (optionPicking ? EyedropperCursor.cursor : NSCursor.arrow).set() }
+        }
+    }
+
     private func updateCursor(_ event: NSEvent) {
+        if optionPicking { EyedropperCursor.cursor.set(); return }
         guard let tool = activeTool, let context = toolContext?() else { return }
         let point = imagePoint(event)
-        if tool.descriptor.kind == .draw, direct.grabs(point, context: context) { direct.cursor(at: point, context: context).set(); return }
+        if Self.allowsGrabbing(from: tool), direct.grabs(point, context: context) { direct.cursor(at: point, context: context).set(); return }
         tool.cursor(at: point, context: context).set()
     }
 
     override func cursorUpdate(with event: NSEvent) { updateCursor(event) }
-    override func mouseMoved(with event: NSEvent) { updateCursor(event) }
+    override func mouseMoved(with event: NSEvent) {
+        handlePointerMoved(to: imagePoint(event))
+        updateCursor(event)
+    }
+
+    /// The pointer moved with no button down (also used by tests, which have no events).
+    func handlePointerMoved(to point: CGPoint) {
+        let previous = lastPointer
+        lastPointer = point
+        if optionPicking {
+            let unit = pickingUnit
+            var dirty = ColorLoupe.area(around: point, unit: unit, bounds: bounds)
+            if let previous { dirty = dirty.union(ColorLoupe.area(around: previous, unit: unit, bounds: bounds)) }
+            setNeedsDisplay(dirty)
+        }
+        if let overlay = activeTool as? OverlayTool, let context = toolContext?() {
+            let before = overlay.overlayRect
+            if overlay.pointerMoved(to: point, context: context) { invalidateOverlay(before: before, overlay: overlay) }
+        }
+    }
+
+    /// Redraws only what the overlay covered and covers now, when it can say so (the eyedropper's magnifier), else everything.
+    private func invalidateOverlay(before: CGRect?, overlay: OverlayTool) {
+        if let before, let after = overlay.overlayRect { setNeedsDisplay(before.union(after)) } else { needsDisplay = true }
+    }
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         guard let tool = activeTool, var context = toolContext?() else { return }
         context.clickCount = event.clickCount
         let point = imagePoint(event)
-        if tool.descriptor.kind == .draw, direct.grabs(point, context: context) {
+        if optionPicking {                                       // Option held: pick a colour instead of drawing
+            if let color = pixelSampler()?.color(at: point) { onPickColor?(color) }
+            return
+        }
+        if Self.allowsGrabbing(from: tool), direct.grabs(point, context: context) {
             gestureTool = direct
             direct.mouseDown(at: point, context: context)
             return
         }
         gestureTool = nil
+        // Pressing on empty space with a drawing tool deselects the previously selected object (its handles go away).
+        if tool.descriptor.kind == .draw { context.document.clearAnnotationSelection() }
         tool.mouseDown(at: point, context: context)
+        needsDisplay = true
+    }
+
+    /// The area covered by the shape being drawn (with room for its line and round ends), or nil when the preview affects
+    /// more than its own area (the spotlight dims the whole picture) and everything must be redrawn.
+    private func previewRect() -> CGRect? {
+        guard let preview = previewProvider?(), !preview.isEmpty else { return nil }
+        let local: Set<String> = ["pencil", "line", "rectangle", "ellipse"]
+        guard preview.allSatisfy({ local.contains($0.shape.shapeType) }) else { return nil }
+        var area = CGRect.null
+        for annotation in preview {
+            let margin = CGFloat(annotation.style.lineWidth) * 1.5 + 12                 // arrow heads and anti-aliasing
+            area = area.union(annotation.bounds.insetBy(dx: -margin, dy: -margin))
+        }
+        return area.isNull ? nil : area
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard let tool = gestureTool ?? activeTool, let context = toolContext?() else { return }
+        let before = lastPreviewRect
+        let overlayBefore = (tool as? OverlayTool)?.overlayRect
         tool.mouseDragged(to: imagePoint(event), context: context)
+        if let overlay = tool as? OverlayTool, overlay.overlayRect != nil || overlayBefore != nil, previewRect() == nil {
+            invalidateOverlay(before: overlayBefore, overlay: overlay)
+            autoscroll(with: event)
+            return
+        }
+        // Live preview of the shape being drawn. Only the area around it is redrawn, so drawing stays quick on large pictures.
+        if let after = previewRect() {
+            setNeedsDisplay((before ?? after).union(after))
+            lastPreviewRect = after
+        } else {
+            needsDisplay = true
+            lastPreviewRect = nil
+        }
         autoscroll(with: event)
     }
 
     override func mouseUp(with event: NSEvent) {
         guard let tool = gestureTool ?? activeTool, let context = toolContext?() else { return }
         gestureTool = nil
+        lastPreviewRect = nil
         tool.mouseUp(at: imagePoint(event), context: context)
+        needsDisplay = true
         updateCursor(event)
     }
 
@@ -123,6 +236,8 @@ final class CanvasView: NSView {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if let tool = activeTool, let context = toolContext?(), tool.keyDown(event, context: context) { return }
         if let tool = activeTool, tool.descriptor.kind == .draw, let context = toolContext?(), direct.keyDown(event, context: context) { return }
+        // Esc with a drawing tool and nothing left to cancel or deselect: leave the tool, back to the default one.
+        if event.keyCode == 53, flags.isEmpty, activeTool?.descriptor.kind == .draw { onExitTool?(); return }
         if flags.isEmpty || flags == .shift {
             if event.keyCode == 48 { onCycleTool?(flags == .shift); return }          // Tab / Shift+Tab
             if let key = event.charactersIgnoringModifiers?.lowercased(), onToolKey?(key) == true { return }
@@ -151,6 +266,12 @@ final class CanvasView: NSView {
         drawObjectSelection(in: context)
 
         if let selection { drawSelection(selection, in: context) }
+        if let overlay = activeTool as? OverlayTool {
+            overlay.drawOverlay(in: context, unit: 1 / max(enclosingScrollView?.magnification ?? 1, 0.0001))
+        }
+        if optionPicking, let lastPointer, let sampler = pixelSampler() {
+            ColorLoupe.draw(sampler: sampler, at: lastPointer, in: context, unit: pickingUnit, bounds: bounds)
+        }
     }
 
     // MARK: Object selection overlay
@@ -227,7 +348,7 @@ final class CanvasView: NSView {
         switch selection {
         case .rect(let rect):
             outline { context.addRect(rect) }
-            let handle = 7 * unit
+            let handle = 9 * unit
             context.setLineDash(phase: 0, lengths: [])
             context.setLineWidth(unit)
             let xs: [CGFloat] = [rect.minX, rect.midX, rect.maxX]
@@ -237,7 +358,11 @@ final class CanvasView: NSView {
                 for (j, y) in ys.enumerated() where !(i == 1 && j == 1) { handlePoints.append(CGPoint(x: x, y: y)) }
             }
             for point in handlePoints {
-                let box = CGRect(x: point.x - handle / 2, y: point.y - handle / 2, width: handle, height: handle)
+                // On the edge of the picture a handle would be cut in half by the view's edge, so it is drawn just inside.
+                let inner = bounds.insetBy(dx: handle / 2 + unit, dy: handle / 2 + unit)
+                let centre = inner.width > 0 && inner.height > 0
+                    ? CGPoint(x: min(max(point.x, inner.minX), inner.maxX), y: min(max(point.y, inner.minY), inner.maxY)) : point
+                let box = CGRect(x: centre.x - handle / 2, y: centre.y - handle / 2, width: handle, height: handle)
                 context.setFillColor(CGColor(gray: 1, alpha: 1))
                 context.fill(box)
                 context.setStrokeColor(CGColor(gray: 0, alpha: 1))

@@ -27,9 +27,28 @@ public final class EditorStore: NSObject {
     // MARK: Opening
 
     /// Opens a capture (or any image) in a new tab. `title` defaults to a timestamped name.
-    public func open(image: CapturedImage, title: String? = nil) {
-        let name = title ?? FilenameTemplate.render(FilenameTemplate.defaultTemplate, date: Date())
-        show(EditorDocument(original: image, title: name))
+    public func open(image: CapturedImage, title: String? = nil, startsSelected: Bool = true) {
+        let name = title ?? suggestedName()
+        let document = EditorDocument(original: image, title: name)
+        document.startsWithFullSelection = startsSelected
+        show(document)
+    }
+
+    /// The name a new capture gets: the "File name" setting from Settings > Output (the same one auto-save uses), so what the
+    /// editor shows, and offers when saving, matches the files that auto-save writes.
+    func suggestedName() -> String {
+        let template = settings.string("capture.fileTemplate")
+        let folder = saveFolder
+        return FilenameTemplate.suggestedName(template: template) { name in
+            ImageFileFormat.allCases.contains { FileManager.default.fileExists(atPath: folder.appendingPathComponent(name).appendingPathExtension($0.fileExtension).path) }
+        }
+    }
+
+    /// The "Save folder" setting (Settings > Output).
+    var saveFolder: URL {
+        let path = settings.string("capture.saveFolder")
+        return path.isEmpty ? (FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSHomeDirectory()))
+                            : URL(fileURLWithPath: (path as NSString).expandingTildeInPath, isDirectory: true)
     }
 
     public func open(urls: [URL]) {
@@ -83,7 +102,7 @@ public final class EditorStore: NSObject {
         context.setFillColor(CGColor(gray: 1, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
         guard let image = context.makeImage() else { return }
-        open(image: CapturedImage(cgImage: image, scale: 1), title: "Untitled")
+        open(image: CapturedImage(cgImage: image, scale: 1), title: "Untitled", startsSelected: false)
         NSApp.activate(ignoringOtherApps: true)
     }
 

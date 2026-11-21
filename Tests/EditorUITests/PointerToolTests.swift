@@ -170,7 +170,8 @@ struct LineEditingTests {
         let (doc, _) = makeDoc()
         let pointer = PointerTool()
         #expect(pointer.grabs(CGPoint(x: 100, y: 100), context: ctx(doc)))
-        #expect(!pointer.grabs(CGPoint(x: 250, y: 150), context: ctx(doc)))     // the middle of the line is not a handle
+        #expect(pointer.grabs(CGPoint(x: 250, y: 150), context: ctx(doc)))      // the body of the line is grabbed too
+        #expect(!pointer.grabs(CGPoint(x: 250, y: 400), context: ctx(doc)))     // empty space is not
     }
 
     @Test func shiftSnapsAnEndpointToFortyFiveDegrees() {

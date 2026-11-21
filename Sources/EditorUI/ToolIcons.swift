@@ -1,17 +1,16 @@
 import AppKit
 import CoreModels
 
-/// Colored toolbar and menu icons. Every tool and command gets its own color, so they are easy to tell apart.
+/// Toolbar and menu icons: single-color template symbols (the color arguments are kept but no longer used).
 enum ToolIcons {
-    /// The first available SF Symbol of `symbols`, drawn in `color` (not tinted by the toolbar).
+    /// The first available SF Symbol of `symbols`, tinted by the system.
     static func image(symbols: [String], color: RGBAColor, description: String, pointSize: CGFloat = 16) -> NSImage? {
-        let nsColor = NSColor(srgbRed: color.red, green: color.green, blue: color.blue, alpha: color.alpha)
-        let configuration = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .medium)
-            .applying(NSImage.SymbolConfiguration(paletteColors: [nsColor]))
+        // Plain template icons: the system tints them, like the icons of any standard Mac toolbar.
+        let configuration = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular, scale: .medium)
         for name in symbols {
             if let base = NSImage(systemSymbolName: name, accessibilityDescription: description),
                let colored = base.withSymbolConfiguration(configuration) {
-                colored.isTemplate = false          // a template image would be re-tinted to the system color
+                colored.isTemplate = true
                 return colored
             }
         }

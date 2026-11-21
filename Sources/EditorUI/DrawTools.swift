@@ -50,8 +50,8 @@ final class ShapeDragTool: EditorTool {
 
     func keyDown(_ event: NSEvent, context: ToolContext) -> Bool {
         guard event.keyCode == 53 else { return false }                    // Esc: cancel the shape in progress, or deselect
-        if start != nil { start = nil } else { context.document.clearAnnotationSelection() }
-        return true
+        if start != nil { start = nil; return true }
+        return dismissSelection(context.document)               // nothing to cancel or deselect: the editor leaves the tool
     }
 
     func deactivate() { start = nil }
@@ -80,41 +80,131 @@ final class ShapeDragTool: EditorTool {
 
 // MARK: - Pencil
 
+/// Esc, once nothing is in progress: deselects whatever object is selected (true), or does nothing (false), so the editor can
+/// take Esc to leave the tool.
 @MainActor
-final class PencilTool: EditorTool {
-    let descriptor = EditorToolRegistry.pencil
-    private var points: [CGPoint] = []
-    private var style = AnnotationStyle.default
+func dismissSelection(_ document: EditorDocument) -> Bool {
+    guard !document.selectedAnnotationIDs.isEmpty else { return false }
+    document.clearAnnotationSelection()
+    return true
+}
 
-    var previewAnnotations: [Annotation] {
-        points.isEmpty ? [] : [Annotation(shape: PencilShape(points: points), style: style)]
+/// Freehand painting with a steadied, smoothed line: the pencil and the redact brush. Pressing always starts a new stroke (it
+/// never picks up what is underneath), a finished stroke is not selected, and Shift draws a straight line.
+@MainActor
+class FreehandTool: EditorTool {
+    let descriptor: EditorToolDescriptor
+    private let makeShape: ([CGPoint]) -> any AnnotationShape
+    private let undoName: String?
+    private var points: [CGPoint] = []
+    private var start = CGPoint.zero
+    private var end = CGPoint.zero
+    private var drawing = false
+    private var straight = false
+    private var stabilizer = StrokeSmoothing.Stabilizer(start: .zero)
+    private var style = AnnotationStyle.default
+    /// Whether Shift is held (replaceable in tests).
+    var shiftHeld: () -> Bool = { NSEvent.modifierFlags.contains(.shift) }
+
+    init(_ descriptor: EditorToolDescriptor, undoName: String? = nil, makeShape: @escaping ([CGPoint]) -> any AnnotationShape) {
+        self.descriptor = descriptor
+        self.undoName = undoName
+        self.makeShape = makeShape
     }
 
-    func cursor(at point: CGPoint, context: ToolContext) -> NSCursor { .crosshair }
+    var previewAnnotations: [Annotation] {
+        guard drawing else { return [] }
+        return [Annotation(shape: makeShape(currentPoints), style: style)]
+    }
+
+    /// The stroke so far. With Shift held it is a straight line from where the press began, snapped to 45° steps like the
+    /// arrows; otherwise it is the smoothed freehand path.
+    private var currentPoints: [CGPoint] {
+        straight ? [start, ShapeDragTool.end(start, end, snap: true)] : points
+    }
+
+    /// A round cursor as big as the line will be, so the user sees exactly what a stroke will look like.
+    func cursor(at point: CGPoint, context: ToolContext) -> NSCursor {
+        let screenPerImagePixel = context.zoom / (NSScreen.main?.backingScaleFactor ?? 2)
+        return BrushCursor.cursor(diameter: CGFloat(context.style.lineWidth) * screenPerImagePixel)
+    }
 
     func mouseDown(at point: CGPoint, context: ToolContext) {
+        drawing = true
+        start = point
+        end = point
         points = [point]
+        stabilizer = StrokeSmoothing.Stabilizer(start: point)
+        straight = shiftHeld()
         style = context.style
     }
 
     func mouseDragged(to point: CGPoint, context: ToolContext) {
-        guard let last = points.last, hypot(point.x - last.x, point.y - last.y) >= 1 else { return }
-        points.append(point)
+        guard drawing else { return }
+        end = point
+        straight = shiftHeld()
+        let step = context.imagePixels(forScreenPoints: 1)
+        let softness = context.imagePixels(forScreenPoints: 5)
+        let smoothed = stabilizer.filter(point, softness: softness)
+        if let last = points.last, hypot(smoothed.x - last.x, smoothed.y - last.y) >= step { points.append(smoothed) }
     }
 
     func mouseUp(at point: CGPoint, context: ToolContext) {
-        defer { points = [] }
-        guard !points.isEmpty else { return }
-        context.document.addAnnotation(Annotation(shape: PencilShape(points: points), style: style))   // a single click makes a dot
+        defer { drawing = false; points = [] }
+        guard drawing else { return }
+        end = point
+        straight = shiftHeld() && hypot(point.x - start.x, point.y - start.y) >= 1
+        var final = currentPoints
+        if !straight, final.count > 1, let last = final.last, hypot(point.x - last.x, point.y - last.y) >= 0.5 {
+            final.append(point)                                  // the filter trails the pointer a little: finish exactly where it was let go
+        }
+        if !straight { final = StrokeSmoothing.simplified(final, tolerance: context.imagePixels(forScreenPoints: 1.4)) }
+        // Not selected afterwards: no handle box, and nothing in the way of the next stroke. A single click makes a dot.
+        context.document.addAnnotation(Annotation(shape: makeShape(final), style: style), select: false)
     }
 
     func keyDown(_ event: NSEvent, context: ToolContext) -> Bool {
         guard event.keyCode == 53 else { return false }
-        if points.isEmpty { context.document.clearAnnotationSelection() } else { points = [] }
-        return true
+        if drawing { drawing = false; points = []; return true }
+        return dismissSelection(context.document)
     }
 
-    func deactivate() { points = [] }
+    func deactivate() { drawing = false; points = [] }
+}
+
+/// The pencil: a smooth freehand line.
+final class PencilTool: FreehandTool {
+    init() { super.init(EditorToolRegistry.pencil) { PencilShape(points: $0) } }
+}
+
+/// The redact brush: paint over anything to blur, pixelate or cover it. The effect shows live while painting.
+final class RedactBrushTool: FreehandTool {
+    init() { super.init(EditorToolRegistry.redactBrush) { RedactBrushShape(points: $0) } }
+}
+
+/// Round brush-size cursors (white ring, dark ring, centre dot), cached by size.
+@MainActor
+enum BrushCursor {
+    private static var cache: [Int: NSCursor] = [:]
+
+    static func cursor(diameter: CGFloat) -> NSCursor {
+        let size = Int(min(max(diameter.rounded(), 7), 96))
+        if let cached = cache[size] { return cached }
+        let side = CGFloat(size) + 6
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            let ring = rect.insetBy(dx: 3, dy: 3)
+            NSColor.white.withAlphaComponent(0.95).setStroke()
+            let outer = NSBezierPath(ovalIn: ring.insetBy(dx: -0.5, dy: -0.5)); outer.lineWidth = 2.5; outer.stroke()
+            NSColor.black.withAlphaComponent(0.85).setStroke()
+            let inner = NSBezierPath(ovalIn: ring); inner.lineWidth = 1; inner.stroke()
+            let dot = NSRect(x: rect.midX - 1, y: rect.midY - 1, width: 2, height: 2)
+            NSColor.black.withAlphaComponent(0.85).setFill(); NSBezierPath(ovalIn: dot).fill()
+            return true
+        }
+        let cursor = NSCursor(image: image, hotSpot: NSPoint(x: side / 2, y: side / 2))
+        cache[size] = cursor
+        return cursor
+    }
 }
 
 // MARK: - Pointer: select, move and resize objects
@@ -170,9 +260,30 @@ final class PointerTool: EditorTool {
         return nil
     }
 
-    /// True when the point is on a handle of the selected object, so any drawing tool can hand the gesture over.
+    /// True when the point is on a handle of the selected object, or on the object itself, so any drawing tool can hand the gesture over.
     func grabs(_ point: CGPoint, context: ToolContext) -> Bool {
-        extraHandle(at: point, context: context) != nil || handle(at: point, context: context) != nil
+        extraHandle(at: point, context: context) != nil || handle(at: point, context: context) != nil || objectBody(at: point, context: context)
+    }
+
+    /// Shapes that cover an area of the picture (effects). Their whole surface can't be a grab target, or the user could
+    /// never draw over them. So they are grabbed by their edge, or anywhere inside once they are selected.
+    private static let areaEffects: Set<String> = ["blur", "pixelate", "highlighter", "spotlight", "fill"]
+
+    /// True when the point is on an existing object, so any drawing tool can select and drag it, and shows the hand cursor,
+    /// without switching to the pointer. Ordinary objects (arrows, rectangles, text, bubbles, steps...) are grabbed anywhere
+    /// on them; area effects follow the edge / selected-interior rule above.
+    private func objectBody(at point: CGPoint, context: ToolContext) -> Bool {
+        let document = context.document
+        let tolerance = context.imagePixels(forScreenPoints: 5)
+        if let hit = document.annotation(at: point, tolerance: tolerance), !Self.areaEffects.contains(hit.shape.shapeType) { return true }
+        for annotation in document.annotations.reversed() where Self.areaEffects.contains(annotation.shape.shapeType) {
+            let box = annotation.bounds
+            let nearEdge = box.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
+                && !box.insetBy(dx: tolerance, dy: tolerance).contains(point)
+            let insideSelected = document.selectedAnnotationIDs.contains(annotation.id) && box.contains(point)
+            if nearEdge || insideSelected { return true }
+        }
+        return false
     }
 
     func cursor(at point: CGPoint, context: ToolContext) -> NSCursor {
@@ -339,8 +450,7 @@ final class StepTool: EditorTool {
 
     func keyDown(_ event: NSEvent, context: ToolContext) -> Bool {
         guard event.keyCode == 53 else { return false }
-        context.document.clearAnnotationSelection()
-        return true
+        return dismissSelection(context.document)
     }
 
     func deactivate() {}
@@ -400,8 +510,8 @@ final class TextTool: EditorTool {
 
     func keyDown(_ event: NSEvent, context: ToolContext) -> Bool {
         guard event.keyCode == 53 else { return false }
-        if start != nil { start = nil } else { context.document.clearAnnotationSelection() }
-        return true
+        if start != nil { start = nil; return true }
+        return dismissSelection(context.document)               // nothing to cancel or deselect: the editor leaves the tool
     }
 
     func deactivate() { start = nil }
@@ -464,8 +574,8 @@ final class CalloutTool: EditorTool {
 
     func keyDown(_ event: NSEvent, context: ToolContext) -> Bool {
         guard event.keyCode == 53 else { return false }
-        if start != nil { start = nil } else { context.document.clearAnnotationSelection() }
-        return true
+        if start != nil { start = nil; return true }
+        return dismissSelection(context.document)               // nothing to cancel or deselect: the editor leaves the tool
     }
 
     func deactivate() { start = nil }
@@ -475,23 +585,86 @@ final class CalloutTool: EditorTool {
 
 /// Click an area to fill it with a color.
 @MainActor
-final class FillTool: EditorTool {
+/// The paint bucket. While the pointer moves, the region a click would fill is previewed in the chosen colour, so there are no
+/// surprises; clicking fills it. Hold Option to pick the colour from the picture instead (the eyedropper, without leaving the tool).
+final class FillTool: OverlayTool {
     let descriptor = EditorToolRegistry.fill
+    var overlayChanged: (() -> Void)?
+
+    private var previewMask: CGImage?
+    private var previewPicture: ObjectIdentifier?
+    private var previewTolerance = -1.0
+    private var previewColor = CGColor(gray: 0, alpha: 1)
+    private var pending: (seed: CGPoint, picture: CGImage, tolerance: Double)?
+    private var working = false
 
     func cursor(at point: CGPoint, context: ToolContext) -> NSCursor { .crosshair }
+
     func mouseDown(at point: CGPoint, context: ToolContext) {}
     func mouseDragged(to point: CGPoint, context: ToolContext) {}
 
     func mouseUp(at point: CGPoint, context: ToolContext) {
         guard context.document.imageBounds.contains(point) else { return }
-        context.document.addAnnotation(Annotation(shape: FillShape(seed: point), style: context.style))
+        // Several regions can be filled one after another: the new fill is not selected, so nothing gets in the way of the next click.
+        context.document.addAnnotation(Annotation(shape: FillShape(seed: point), style: context.style), select: false)
+        previewMask = nil                                    // that region is filled now: look again on the next move
     }
 
     func keyDown(_ event: NSEvent, context: ToolContext) -> Bool {
         guard event.keyCode == 53 else { return false }
-        context.document.clearAnnotationSelection()
-        return true
+        return dismissSelection(context.document)
     }
 
-    func deactivate() {}
+    func deactivate() { previewMask = nil; pending = nil }
+
+    // MARK: Live preview
+
+    func pointerMoved(to point: CGPoint, context: ToolContext) -> Bool {
+        let picture = context.document.workingImage.cgImage
+        let id = ObjectIdentifier(picture)
+        previewColor = context.style.strokeColor.cgColor.copy(alpha: 0.55) ?? previewColor
+        guard context.document.imageBounds.contains(point) else {
+            let had = previewMask != nil
+            previewMask = nil
+            return had
+        }
+        // A different picture (after a crop) or a different tolerance makes the old preview wrong.
+        if previewPicture != id || previewTolerance != context.style.strength { previewMask = nil; previewPicture = id; previewTolerance = context.style.strength }
+        if let mask = previewMask, FillRegion.contains(mask, point: point) { return false }        // still inside the highlighted region
+        pending = (point, picture, context.style.strength)
+        if !working { work() }
+        return false                                                                                // the region arrives a moment later
+    }
+
+    /// Finds the region under the latest pointer position in the background, so moving stays smooth however large the region is.
+    private func work() {
+        guard let request = pending else { return }
+        pending = nil
+        working = true
+        let id = ObjectIdentifier(request.picture)
+        Task.detached(priority: .userInitiated) {
+            let mask = FillRegion.mask(in: request.picture, seed: request.seed, tolerance: request.tolerance)
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.working = false
+                if self.previewPicture == id, request.tolerance == self.previewTolerance {
+                    self.previewMask = mask
+                    self.overlayChanged?()
+                }
+                if self.pending != nil { self.work() }                                              // the pointer moved on: look again
+            }
+        }
+    }
+
+    func drawOverlay(in context: CGContext, unit: CGFloat) {
+        guard let mask = previewMask else { return }
+        let w = CGFloat(mask.width), h = CGFloat(mask.height)
+        context.saveGState()
+        context.translateBy(x: 0, y: h)                       // our space is y-down; masks are y-up
+        context.scaleBy(x: 1, y: -1)
+        context.clip(to: CGRect(x: 0, y: 0, width: w, height: h), mask: mask)
+        context.setFillColor(previewColor)
+        context.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        context.restoreGState()
+    }
 }

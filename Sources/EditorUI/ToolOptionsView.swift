@@ -20,12 +20,15 @@ final class ToolOptionsModel: ObservableObject {
     /// Shown for the area-selection tools: the selected rectangle in pixels (nil = nothing selected).
     @Published var areaSelection: CGRect?
     @Published var isAreaTool = false
+    /// A status line and an extra button supplied by the active tool (Hide Text: how many words were found, and Hide All).
+    @Published var toolStatus: String?
+    @Published var toolButton: (title: String, symbol: String)?
 
     /// Called whenever the user changes something in the bar.
     var onStyleEdited: ((AnnotationStyle) -> Void)?
     var onAction: ((ObjectAction) -> Void)?
 
-    enum ObjectAction { case duplicate, delete, bringToFront, sendToBack, crop, copyArea, deselectArea, selectAllArea }
+    enum ObjectAction { case duplicate, delete, bringToFront, sendToBack, crop, copyArea, deselectArea, selectAllArea, toolButton, eraseArea, fillArea }
 
     func title(_ property: StyleProperty, default fallback: String) -> String { titles[property] ?? fallback }
 
@@ -98,7 +101,14 @@ struct ToolOptionsView: View {
         HStack(spacing: 10) {
             Text(model.title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
             ForEach(model.properties, id: \.self) { control(for: $0) }
+            toolExtras
         }
+    }
+
+    /// What the active tool adds to the bar: a status line and a button (Hide Text).
+    @ViewBuilder private var toolExtras: some View {
+        if let button = model.toolButton { actionButton(button.symbol, button.title) { model.onAction?(.toolButton) } }
+        if let status = model.toolStatus { Text(status).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
     }
 
     private var areaBar: some View {
@@ -109,9 +119,11 @@ struct ToolOptionsView: View {
                     .font(.system(size: 12)).monospacedDigit().foregroundStyle(.secondary)
                 actionButton("crop", "Crop") { model.onAction?(.crop) }
                 actionButton("doc.on.doc", "Copy") { model.onAction?(.copyArea) }
+                actionButton("trash", "Delete") { model.onAction?(.eraseArea) }
+                actionButton("paintbrush.fill", "Fill") { model.onAction?(.fillArea) }
                 actionButton("xmark.circle", "Deselect") { model.onAction?(.deselectArea) }
             } else {
-                Text("Drag on the picture to choose an area, then crop or copy it.").font(.caption).foregroundStyle(.secondary)
+                Text("Drag on the picture to choose an area, then crop, copy, delete or fill it.").font(.caption).foregroundStyle(.secondary)
             }
             actionButton("rectangle.dashed", "Select All") { model.onAction?(.selectAllArea) }
         }
@@ -136,6 +148,7 @@ struct ToolOptionsView: View {
                 WrapLayout(spacing: 10, rowSpacing: 4) {
                     Text(model.title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
                     ForEach(model.properties, id: \.self) { control(for: $0) }
+                    toolExtras
                 }
                 .padding(.vertical, 6)
             } else {
@@ -214,6 +227,13 @@ struct ToolOptionsView: View {
                 Slider(value: Binding(get: { model.style.strength }, set: { v in model.edit { $0.strength = v.rounded() } }), in: 1...60)
                     .frame(width: 80)
                 Text("\(Int(model.style.strength))").monospacedDigit().frame(width: 24, alignment: .trailing).font(.caption)
+            }
+        case .redaction:
+            labelled(model.title(.redaction, default: "Hide with")) {
+                Picker("Hide with", selection: Binding(get: { model.style.redaction }, set: { v in model.edit { $0.redaction = v } })) {
+                    ForEach(RedactionMode.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented).labelsHidden().frame(width: 168)
             }
         case .endHead:
             labelled(model.title(.endHead, default: "Head")) { headPicker(model.style.endHead, atStart: false) { v in model.edit { $0.endHead = v } } }

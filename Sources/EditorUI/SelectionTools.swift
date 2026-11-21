@@ -23,16 +23,31 @@ final class SelectRectTool: EditorTool {
         switch handle {
         case .left, .right: return .resizeLeftRight
         case .top, .bottom: return .resizeUpDown
-        case .move: return .openHand
-        default: return .crosshair
+        case .topLeft, .bottomRight: return Self.diagonalCursor(backslash: true)
+        case .topRight, .bottomLeft: return Self.diagonalCursor(backslash: false)
+        case .move: return rect == context.document.imageBounds ? .crosshair : .openHand   // the whole picture: dragging starts a new selection
         }
+    }
+
+    /// A corner resize cursor. Older macOS has no public one, so those versions get the crosshair.
+    private static func diagonalCursor(backslash: Bool) -> NSCursor {
+        if #available(macOS 15.0, *) {
+            return NSCursor.frameResize(position: backslash ? .topLeft : .topRight, directions: .all)
+        }
+        return .crosshair
     }
 
     func mouseDown(at point: CGPoint, context: ToolContext) {
         let document = context.document
         if case .rect(let rect)? = document.selection,
            let handle = RectSelectionEditing.hitTest(rect: rect, point: point, tolerance: context.imagePixels(forScreenPoints: 6)) {
-            state = .editing(handle: handle, startRect: rect, startPoint: point)
+            if handle == .move, rect == document.imageBounds {
+                // The whole picture is selected: pressing inside it starts a new, smaller selection (moving it would do nothing).
+                document.clearSelection()
+                state = .creating(anchor: point)
+            } else {
+                state = .editing(handle: handle, startRect: rect, startPoint: point)
+            }
         } else {
             document.clearSelection()
             state = .creating(anchor: point)
@@ -51,11 +66,27 @@ final class SelectRectTool: EditorTool {
         }
     }
 
-    func mouseUp(at point: CGPoint, context: ToolContext) { state = .idle }
+    func mouseUp(at point: CGPoint, context: ToolContext) {
+        defer { state = .idle }
+        let document = context.document
+        switch state {
+        case .editing(let handle, let start, _) where handle != .move:
+            // Dragging an edge or corner of the WHOLE-picture selection crops right away when that is wanted: no trip to the
+            // Crop button. (A smaller selection the user drew is left alone: they may want to copy or annotate it.)
+            guard context.cropOnSelectionDrag, start == document.imageBounds,
+                  case .rect(let rect)? = document.selection, rect != document.imageBounds else { return }
+            if document.cropToSelection(), context.keepWholeImageSelected { document.selectAll() }
+        case .creating:
+            // A plain click (no drag) left nothing selected: bring the whole picture back.
+            if document.selection == nil, context.keepWholeImageSelected { document.selectAll() }
+        default: break
+        }
+    }
 
     func keyDown(_ event: NSEvent, context: ToolContext) -> Bool {
         let document = context.document
         if event.keyCode == 53, document.selection != nil { document.clearSelection(); return true }   // Esc
+        if event.keyCode == 51 || event.keyCode == 117, document.selection != nil { return document.eraseSelection() }   // Delete: erase the area
         guard case .rect(let rect)? = document.selection else { return false }
         let step: CGFloat = event.modifierFlags.contains(.option) ? 10 : 1
         let delta: (CGFloat, CGFloat)
@@ -102,6 +133,7 @@ final class SelectFreehandTool: EditorTool {
     }
 
     func keyDown(_ event: NSEvent, context: ToolContext) -> Bool {
+        if (event.keyCode == 51 || event.keyCode == 117), context.document.selection != nil { return context.document.eraseSelection() }   // Delete
         guard event.keyCode == 53, context.document.selection != nil else { return false }   // Esc
         context.document.clearSelection()
         return true

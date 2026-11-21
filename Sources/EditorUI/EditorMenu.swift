@@ -46,6 +46,8 @@ enum EditorMenu {
 
         let image = submenu("Image")
         add("Crop to Selection", to: image, action: Selector(("cropToSelection:")), key: "k")
+        add("Delete Selected Area", to: image, action: Selector(("deleteSelectedArea:")), key: "")
+        add("Fill Selected Area with Picked Color", to: image, action: Selector(("fillSelectedArea:")), key: "")
         image.addItem(.separator())
         add("Rotate Right", to: image, action: Selector(("rotateRight:")), key: "r")
         add("Rotate Left", to: image, action: Selector(("rotateLeft:")), key: "l")
