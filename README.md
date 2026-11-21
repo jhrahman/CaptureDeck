@@ -1,119 +1,87 @@
 <p align="center">
-  <img src="docs/images/logo.svg" alt="CaptureDeck logo" width="128" height="128">
+  <img src="docs/images/logo.svg" alt="CaptureDeck logo" width="120" height="120">
 </p>
 
 <h1 align="center">CaptureDeck</h1>
 
 <p align="center">
-  A native macOS screen capture tool with a built in editor. Capture, mark up, hide the sensitive bits, share.
+  <b>Capture it. Mark it up. Hide what shouldn't leave your Mac.</b><br>
+  A small native screenshot tool for macOS with an editor that does more than it needs to.
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-v0.1.0-blue">
-  <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%2013%2B-lightgrey?logo=apple">
-  <img alt="Swift" src="https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white">
-  <img alt="UI" src="https://img.shields.io/badge/UI-AppKit%20%2B%20SwiftUI-1f6feb">
-  <img alt="Architecture" src="https://img.shields.io/badge/build-arm64%20%2B%20x86__64-success">
-  <img alt="License" src="https://img.shields.io/badge/license-MIT-green">
+  <a href="https://github.com/jhrahman/CaptureDeck/releases/latest/download/CaptureDeck.dmg">
+    <img alt="Download the latest DMG" src="https://img.shields.io/github/v/release/jhrahman/CaptureDeck?display_name=tag&label=Download%20DMG&logo=apple&logoColor=white&style=for-the-badge&color=0A84FF">
+  </a>
 </p>
 
 <p align="center">
-  <img src="docs/images/annotate.png" alt="CaptureDeck editor with an arrow annotation selected" width="820">
+  <img alt="macOS 13+" src="https://img.shields.io/badge/macOS-13%2B-lightgrey?logo=apple">
+  <img alt="Swift 6" src="https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white">
+  <img alt="Universal binary" src="https://img.shields.io/badge/Apple%20silicon%20%2B%20Intel-universal-success">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-390%2B-brightgreen">
+  <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue">
 </p>
-
-## About
-
-CaptureDeck is a pet project. I wanted a screenshot tool that lives in the menu bar, stays out of the way, and has an editor good enough that I never need to open a second app. It grew from there into a fairly complete tool, and it is also where I practise building a larger native Mac app in Swift: multi module packages, system frameworks, real permissions, and a proper test suite.
-
-It runs entirely on your Mac. Nothing is uploaded and there is no account, analytics or network code.
-
-## Features
-
-**Capture**
-- Region, active window, full screen and all displays
-- Fixed size regions
-- Multi display captures with a divider and a "Screen 1", "Screen 2" badge on each display (optional)
-- Scrolling capture that detects the scroll direction, starts from wherever the page already is, and stitches the result into one tall or wide image
-- Frozen screen with a red frame around the window you are about to capture
-- Global hotkeys, all configurable
-
-**Edit**
-- Rectangles, rounded boxes, ellipses, lines, arrows (with several head styles), pencil with smoothing, text, callouts and numbered steps
-- Select anything and move, resize or restyle it, with handles on line endpoints
-- Hide Text: on device OCR finds every word, click or drag to blur, pixelate or cover it
-- Redact brush for anything that is not text
-- Eyedropper with a magnifier, paint bucket with live preview, rectangle and freehand selection
-- Quick crop by dragging the edges of the selection
-- Smooth zoom from 5% to 800%, full undo and redo
-
-**Output**
-- Copy to clipboard, save to a folder, or both
-- Optionally close the editor right after you copy from it
-- Filename templates, PNG or JPEG
-- Launch at login, capture sound, start minimized
 
 <p align="center">
-  <img src="docs/images/hide-text.png" alt="Hide Text tool outlining every word it found" width="49%">
-  <img src="docs/images/eyedropper.png" alt="Eyedropper with magnifier" width="49%">
+  <img src="docs/images/annotate.png" alt="The CaptureDeck editor with a highlight, numbered steps and a callout on a revenue dashboard" width="860">
 </p>
+
+I started CaptureDeck as a weekend project because I kept opening a second app every time a screenshot needed an arrow or a blurred password. It has since grown into the tool I actually use all day. It lives in the menu bar, runs fully on your Mac, and has no account, no analytics and no network code.
+
+## What it does
+
+- **Captures what you point at.** Region, window, full screen, fixed size, or every display at once. The screen freezes first, and the window you are about to grab gets a red frame.
+- **Scrolls for you.** Click a long page and it scrolls on its own, in whichever direction the content goes, and stitches one tall (or wide) image.
+- **Edits right away.** Arrows, boxes, callouts, numbered steps, text, pencil, highlighter, eyedropper, paint bucket. Pick any object later to move or restyle it.
+- **Hides secrets properly.** It reads the text in the picture on your device, so you can click a word to blur, pixelate or cover it. Or paint over anything with the redact brush.
+- **Stays out of the way.** Hotkeys for everything, clipboard and file output, filename templates, and an optional "close the editor after copy".
+
+<p align="center">
+  <img src="docs/images/hide.png" alt="Redact brush hiding an email with blur, an API key with a solid cover and a secret with pixelation" width="860">
+</p>
+
+## Two small things I like
+
+**Multi display captures label themselves.** Grab all your screens at once and each one gets a divider and a "Screen 1", "Screen 2" badge, so nobody has to guess which monitor is which. It is a setting, in case you want a clean picture.
+
+<p align="center">
+  <img src="docs/images/displays.png" alt="Two displays captured together, each with a Screen badge" width="860">
+</p>
+
+**Quick crop.** A new capture opens with everything selected. Drag any edge inward and it crops when you let go. Undo brings it back.
 
 ## Install
 
-Download the latest `.dmg` or `.zip` from the [Releases](../../releases) page, drag CaptureDeck to Applications and open it. The icon appears in the menu bar.
+Grab **CaptureDeck.dmg** from the badge above (or the [Releases](https://github.com/jhrahman/CaptureDeck/releases) page), drag the app to Applications and open it. The icon shows up in your menu bar.
 
-The app is not notarized yet because I do not have a paid Apple developer account for this project. On first launch macOS may block it. Right click the app, choose Open, and confirm. You can also allow it under System Settings, Privacy & Security.
-
-Permissions CaptureDeck asks for:
+It is not notarized yet, so macOS may complain on first launch. Right click the app, choose Open, and confirm once. CaptureDeck asks for two permissions:
 
 | Permission | Why |
 | --- | --- |
-| Screen Recording | To capture the screen |
-| Accessibility | Only for scrolling capture, to scroll the window and to ignore the stop click |
+| Screen Recording | So it can capture the screen |
+| Accessibility | Only for scrolling capture, to scroll the window and ignore the stop click |
 
-## Build from source
+## Build it yourself
 
-You need macOS 13 or later and Swift 6 (Xcode or the Command Line Tools).
+You need macOS 13+ and Swift 6 (Xcode or the Command Line Tools).
 
 ```sh
-./scripts/setup-dev-signing.sh   # optional, once: stable local signing so permissions survive rebuilds
-./scripts/test.sh                # run the test suite
-./scripts/build-app.sh           # builds build/CaptureDeck.app (universal arm64 + x86_64)
-./scripts/package-release.sh     # builds dist/CaptureDeck-<version>.dmg and .zip
-open build/CaptureDeck.app
+./scripts/test.sh              # run the tests
+./scripts/build-app.sh         # build/CaptureDeck.app, universal
+./scripts/package-release.sh   # dist/CaptureDeck.dmg and CaptureDeck.zip
 ```
 
-## How it is put together
+## Under the hood
 
-The code is split into small Swift package modules so each part can be tested on its own.
+Nine small Swift modules, so each part can be tested alone: `CaptureEngine` (ScreenCaptureKit, region picking, scroll stitching), `EditorEngine` (document model, shapes, rendering, Vision based text detection), `EditorUI` (canvas and tools in AppKit), `Platform`, `Settings` and `SettingsUI` (SwiftUI), `DesignSystem`, `CoreModels` and the menu bar app itself.
 
-| Module | Responsibility |
-| --- | --- |
-| CoreModels | Shared types, app version info |
-| DesignSystem | Colours, spacing and shared UI pieces |
-| CaptureEngine | ScreenCaptureKit capture, region picking, scrolling capture and image stitching |
-| EditorEngine | Document model, annotation shapes, rendering, redaction, text detection with Vision |
-| EditorUI | Canvas, tools, ribbon and the AppKit event handling |
-| Platform | Clipboard, file saving, hotkeys, login item |
-| Settings / SettingsUI | Typed settings store and the SwiftUI settings window |
-| CaptureDeck | The menu bar app that wires everything together |
+The parts I enjoyed most: stitching scroll captures by matching overlapping rows, live blur and pixelate previews while you paint, and tests that drive the real editor to catch the focus and input bugs unit tests miss. There are 390+ of them.
 
-Some things I enjoyed solving along the way: stitching scrolling screenshots by matching overlapping rows, keeping the editor responsive with live blur and pixelate previews, and driving the real app from tests to catch input and focus bugs that unit tests miss.
+## Next up
 
-## Tests
+Screen recording to GIF and video, notarized builds, and a shelf of recent captures.
 
-About 390 tests using Swift Testing cover the stitcher, annotation geometry, image operations, settings, file naming and the editor tools, including rendered UI snapshots.
+## License and author
 
-## Roadmap
-
-- Notarized release builds
-- Screen recording to GIF and video
-- Annotation presets and a recent captures shelf
-- Share extensions
-
-## License
-
-Released under the [MIT License](LICENSE).
-
-## Author
-
-Built by Jahidur Rahman ([@jhrahman](https://github.com/jhrahman)).
+MIT, see [LICENSE](LICENSE). Built by [Jahidur Rahman](https://github.com/jhrahman).
