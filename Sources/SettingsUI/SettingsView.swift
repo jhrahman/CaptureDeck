@@ -42,6 +42,10 @@ struct SettingsView: View {
             .glassBar()
             .glassEdge(.top)
         }
+        .background(alignment: .top) {
+            // The tab strip along the top is solid; the glass shows through the window below it.
+            Color(Theme.surface).frame(height: 62).ignoresSafeArea(edges: .top)
+        }
         .glassWindow()
         .frame(minWidth: 680, minHeight: 540)
         .confirmationDialog("Reset every setting to its default?", isPresented: $confirmResetAll) {
