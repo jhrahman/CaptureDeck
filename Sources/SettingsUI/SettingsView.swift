@@ -1,5 +1,6 @@
 import AppKit
 import CoreModels
+import DesignSystem
 import Settings
 import SwiftUI
 
@@ -24,7 +25,6 @@ struct SettingsView: View {
                         .tag(section.id)
                 }
             }
-            Divider()
             HStack(spacing: 10) {
                 Button("Reset All Settings…") { confirmResetAll = true }
                 Text(AppInfo.nameAndVersion).font(.caption).foregroundStyle(.secondary).padding(.leading, 6)
@@ -39,7 +39,10 @@ struct SettingsView: View {
                     .help("Save the changes and start using them")
             }
             .padding(12)
+            .glassBar()
+            .glassEdge(.top)
         }
+        .glassWindow()
         .frame(minWidth: 680, minHeight: 540)
         .confirmationDialog("Reset every setting to its default?", isPresented: $confirmResetAll) {
             Button("Reset All Settings", role: .destructive) {
@@ -108,6 +111,7 @@ private struct SectionTab: View {
                 }
             }
             .formStyle(.grouped)
+            .scrollContentBackground(.hidden)         // let the window's glass show between the cards
             HStack {
                 Spacer()
                 Button("Reset This Tab") { store.resetDraft(section: section) }

@@ -22,6 +22,9 @@ public final class SettingsWindowController: NSObject, NSWindowDelegate {
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             window.setContentSize(NSSize(width: 660, height: 600))
             window.isReleasedWhenClosed = false
+            window.isOpaque = false                  // glass: the desktop shows through the window
+            window.backgroundColor = .clear
+            window.titlebarAppearsTransparent = true
             window.delegate = self
             window.setFrameAutosaveName("CaptureDeckSettings")
             if !window.setFrameUsingName("CaptureDeckSettings") { window.center() }

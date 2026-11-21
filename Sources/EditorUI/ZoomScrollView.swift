@@ -18,7 +18,7 @@ final class ZoomScrollView: NSScrollView {
         autohidesScrollers = true
         allowsMagnification = true
         drawsBackground = true
-        backgroundColor = Theme.canvasBackground
+        backgroundColor = Theme.canvasBackground.withAlphaComponent(0.6)      // a little glass shows through around the picture
         registerForDraggedTypes([.fileURL])
     }
 

@@ -48,6 +48,17 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
 
     override func loadView() {
         let container = NSView()
+        // The window's glass: the desktop blurs through behind everything, tinted by light or dark mode.
+        let glass = NSVisualEffectView()
+        glass.material = Glass.windowMaterial
+        glass.blendingMode = .behindWindow
+        glass.state = .active
+        glass.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(glass)
+        NSLayoutConstraint.activate([
+            glass.topAnchor.constraint(equalTo: container.topAnchor), glass.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            glass.leadingAnchor.constraint(equalTo: container.leadingAnchor), glass.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+        ])
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.documentView = canvas
 

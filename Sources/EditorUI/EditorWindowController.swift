@@ -40,6 +40,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         toolbar.displayMode = .iconOnly
         window.toolbar = toolbar
         window.toolbarStyle = .unified
+        window.isOpaque = false                     // glass: the desktop shows through the window's materials
+        window.backgroundColor = .clear
+        window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none        // the title bar and the glass ribbon read as one surface
 
         viewController.scrollView.onFilesDropped = { [weak self] urls in self?.store?.open(urls: urls) }

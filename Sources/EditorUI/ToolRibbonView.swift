@@ -28,7 +28,7 @@ struct ToolRibbonView: View {
             .frame(maxHeight: .infinity)
         }
         .frame(height: 42)
-        .background(GlassBackground(material: .headerView))
+        .glassBar()
         .glassEdge(.bottom)
     }
 }

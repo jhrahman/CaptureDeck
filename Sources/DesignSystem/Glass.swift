@@ -16,6 +16,12 @@ public enum Glass {
     public static let fill = NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? NSColor(white: 1, alpha: 0.07) : NSColor(white: 0, alpha: 0.05)
     }
+    /// The bright sheen along the top edge of glass.
+    public static let sheen = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? NSColor(white: 1, alpha: 0.07) : NSColor(white: 1, alpha: 0.55)
+    }
+    /// A window-wide glass surface: the desktop blurs through, tinted by the light or dark appearance.
+    public static let windowMaterial = NSVisualEffectView.Material.underWindowBackground
 }
 
 /// A frosted-glass background for SwiftUI views (a real `NSVisualEffectView`, so it blurs what is behind the window).
@@ -43,6 +49,19 @@ public struct GlassBackground: NSViewRepresentable {
 }
 
 public extension View {
+    /// Frosted glass with a soft sheen on top, for bars (ribbons, toolbars, footers).
+    func glassBar(material: NSVisualEffectView.Material = .headerView) -> some View {
+        background(
+            GlassBackground(material: material)
+                .overlay(LinearGradient(colors: [Color(Glass.sheen), .clear], startPoint: .top, endPoint: .bottom).allowsHitTesting(false))
+        )
+    }
+
+    /// Makes a whole window's SwiftUI content sit on window glass.
+    func glassWindow() -> some View {
+        background(GlassBackground(material: Glass.windowMaterial).ignoresSafeArea())
+    }
+
     /// A one point hairline along an edge of glass.
     func glassEdge(_ edge: Alignment = .bottom) -> some View {
         overlay(alignment: edge) {

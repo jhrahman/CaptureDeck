@@ -61,10 +61,10 @@ public enum DisplayComposer {
 
     // MARK: Glass backdrop layout (all in points)
 
-    static let margin: CGFloat = 36
-    static let columnGap: CGFloat = 36
+    static let margin: CGFloat = 20
+    static let columnGap: CGFloat = 14
     /// Room between rows (and under the bottom row) for the labels.
-    static let rowGap: CGFloat = 84
+    static let rowGap: CGFloat = 58
 
     /// Which column (or row) each interval falls in: intervals that overlap share one.
     private static func groupIndex(_ ranges: [ClosedRange<CGFloat>]) -> [Int] {
@@ -149,8 +149,8 @@ public enum DisplayComposer {
         let line = CTLineCreateWithAttributedString(attributed)
         let textBounds = CTLineGetBoundsWithOptions(line, [])
         let dot = 8 * scale, padX = 16 * scale, gapDot = 10 * scale
-        let pillW = padX * 2 + dot + gapDot + textBounds.width, pillH = 34 * scale
-        let pill = CGRect(x: display.midX - pillW / 2, y: display.minY - 20 * scale - pillH, width: pillW, height: pillH)
+        let pillW = padX * 2 + dot + gapDot + textBounds.width, pillH = 30 * scale
+        let pill = CGRect(x: display.midX - pillW / 2, y: display.minY - 12 * scale - pillH, width: pillW, height: pillH)
         let path = CGPath(roundedRect: pill, cornerWidth: pillH / 2, cornerHeight: pillH / 2, transform: nil)
         context.setFillColor(CGColor(gray: 1, alpha: 0.10)); context.addPath(path); context.fillPath()
         context.setStrokeColor(CGColor(gray: 1, alpha: 0.20)); context.setLineWidth(scale); context.addPath(path); context.strokePath()
