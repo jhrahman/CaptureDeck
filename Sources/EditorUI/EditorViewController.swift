@@ -548,26 +548,36 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
 }
 
 
-/// The strip along the bottom of the editor: the window's own background colour (it follows light and dark mode) and a thin
-/// line above it, so the zoom control and the picture's size read clearly on it.
-final class StatusBarBackground: NSView {
-    override var wantsUpdateLayer: Bool { true }
+/// The strip along the bottom of the editor: frosted glass like the bars above the picture (it follows light and dark
+/// mode), with a hairline on top, so the zoom control and the picture's size read clearly on it.
+final class StatusBarBackground: NSVisualEffectView {
+    private let hairline = NSView()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        wantsLayer = true
+        material = .headerView
+        blendingMode = .behindWindow
+        state = .active
+        hairline.translatesAutoresizingMaskIntoConstraints = false
+        hairline.wantsLayer = true
+        addSubview(hairline)
+        NSLayoutConstraint.activate([
+            hairline.leadingAnchor.constraint(equalTo: leadingAnchor),
+            hairline.trailingAnchor.constraint(equalTo: trailingAnchor),
+            hairline.topAnchor.constraint(equalTo: topAnchor),
+            hairline.heightAnchor.constraint(equalToConstant: 1),
+        ])
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    override func updateLayer() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
-        }
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        effectiveAppearance.performAsCurrentDrawingAppearance { hairline.layer?.backgroundColor = Glass.stroke.cgColor }
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        NSColor.separatorColor.setFill()
-        NSRect(x: 0, y: bounds.maxY - 1, width: bounds.width, height: 1).fill()
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        effectiveAppearance.performAsCurrentDrawingAppearance { hairline.layer?.backgroundColor = Glass.stroke.cgColor }
     }
 }

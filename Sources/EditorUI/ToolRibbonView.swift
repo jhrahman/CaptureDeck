@@ -1,4 +1,5 @@
 import AppKit
+import DesignSystem
 import EditorEngine
 import SwiftUI
 
@@ -27,8 +28,8 @@ struct ToolRibbonView: View {
             .frame(maxHeight: .infinity)
         }
         .frame(height: 42)
-        .background(.bar)
-        .overlay(alignment: .bottom) { Divider().opacity(0.6) }
+        .background(GlassBackground(material: .headerView))
+        .glassEdge(.bottom)
     }
 }
 
@@ -50,14 +51,15 @@ private struct RibbonButton: View {
                 .foregroundStyle(selected ? accent : Color.primary.opacity(hovering ? 1 : 0.78))
                 .frame(width: 34, height: 28)
                 .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(selected ? accent.opacity(0.18) : (hovering ? Color.primary.opacity(0.08) : Color.clear))
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(selected ? accent.opacity(0.22) : (hovering ? Color(Glass.fill) : Color.clear))
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .strokeBorder(selected ? accent.opacity(0.55) : Color.clear, lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(selected ? accent.opacity(0.55) : (hovering ? Color(Glass.stroke) : Color.clear), lineWidth: 1)
                 )
-                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .shadow(color: selected ? accent.opacity(0.25) : .clear, radius: 5, y: 1)
+                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }

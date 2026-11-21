@@ -1,6 +1,7 @@
 import AppKit
 import CoreModels
 import EditorEngine
+import DesignSystem
 import SwiftUI
 
 /// What the properties bar shows and edits: the look of the selected objects, or of the active drawing tool.
@@ -72,7 +73,8 @@ struct ToolOptionsView: View {
         }
         .padding(.horizontal, 12)
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(.bar)
+        .background(GlassBackground(material: .headerView))
+        .glassEdge(.bottom)
         .onPreferenceChange(IdealWidthKey.self) { ideal in
             // Re-measured whenever the controls change; one line is preferred.
             if let ideal { measuredIdeal = ideal; recompute() }

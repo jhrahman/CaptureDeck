@@ -1,3 +1,4 @@
+import DesignSystem
 import SwiftUI
 
 /// What the zoom control shows and does. The editor keeps `percent` up to date and supplies the actions.
@@ -64,7 +65,7 @@ struct ZoomBar: View {
         }
         .padding(.horizontal, 7)
         .frame(height: 22)
-        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.primary.opacity(0.07)))
-        .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(Color.primary.opacity(0.08)))
+        .background(Capsule().fill(Color(Glass.fill)))
+        .overlay(Capsule().strokeBorder(Color(Glass.strongStroke)))
     }
 }

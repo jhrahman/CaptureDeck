@@ -40,6 +40,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         toolbar.displayMode = .iconOnly
         window.toolbar = toolbar
         window.toolbarStyle = .unified
+        window.titlebarSeparatorStyle = .none        // the title bar and the glass ribbon read as one surface
 
         viewController.scrollView.onFilesDropped = { [weak self] urls in self?.store?.open(urls: urls) }
         editorDocument.$title.sink { [weak window] in window?.title = $0 }.store(in: &cancellables)
