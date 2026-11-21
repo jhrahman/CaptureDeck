@@ -32,6 +32,7 @@ It runs entirely on your Mac. Nothing is uploaded and there is no account, analy
 **Capture**
 - Region, active window, full screen and all displays
 - Fixed size regions
+- Multi display captures with a divider and a "Screen 1", "Screen 2" badge on each display (optional)
 - Scrolling capture that detects the scroll direction, starts from wherever the page already is, and stitches the result into one tall or wide image
 - Frozen screen with a red frame around the window you are about to capture
 - Global hotkeys, all configurable
@@ -47,6 +48,7 @@ It runs entirely on your Mac. Nothing is uploaded and there is no account, analy
 
 **Output**
 - Copy to clipboard, save to a folder, or both
+- Optionally close the editor right after you copy from it
 - Filename templates, PNG or JPEG
 - Launch at login, capture sound, start minimized
 

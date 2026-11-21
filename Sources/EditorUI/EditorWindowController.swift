@@ -72,6 +72,11 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             try ClipboardManager().copy(image)
             let px = image.pixelSize
             let what = editorDocument.selection != nil ? "Selection copied" : "Image copied"
+            if store?.settings.bool("capture.closeEditorAfterCopy") == true {
+                // The clipboard already holds the image; leave without the discard prompt.
+                forceClose()
+                return
+            }
             ToastView.show("\(what) to clipboard  ·  \(Int(px.width)) × \(Int(px.height))", in: window)
         } catch { NSSound.beep() }
     }
@@ -207,6 +212,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     }
 
     // MARK: Closing
+
+    /// Closes without the unsaved-changes prompt (used after the image has been copied on purpose).
+    func forceClose() {
+        closeConfirmed = true
+        window?.close()
+    }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         let ask = store?.settings.bool("editor.askBeforeDiscard") ?? true
