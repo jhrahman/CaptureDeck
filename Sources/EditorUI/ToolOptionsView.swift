@@ -73,7 +73,7 @@ struct ToolOptionsView: View {
         }
         .padding(.horizontal, 12)
         .frame(maxHeight: .infinity, alignment: .top)
-        .glassBar()
+        .background(Color(Theme.surface))          // solid, so the tools read clearly
         .glassEdge(.bottom)
         .onPreferenceChange(IdealWidthKey.self) { ideal in
             // Re-measured whenever the controls change; one line is preferred.
