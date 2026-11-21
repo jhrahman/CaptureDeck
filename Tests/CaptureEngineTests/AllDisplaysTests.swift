@@ -90,7 +90,13 @@ struct AllDisplaysModeTests {
         #expect(DisplayComposer.numbering([right, left]) == [2, 1])
         let plain = try #require(DisplayComposer.compose([left, right]))
         let marked = try #require(DisplayComposer.compose([left, right], labelled: true))
-        #expect(plain.cgImage.width == marked.cgImage.width && plain.cgImage.height == marked.cgImage.height)
-        #expect(plain.cgImage.dataProvider?.data != marked.cgImage.dataProvider?.data)
+        // The labels live in a strip added below; the screenshots themselves are untouched.
+        let strip = Int(DisplayComposer.captionHeight * 2)
+        #expect(marked.cgImage.width == plain.cgImage.width && marked.cgImage.height == plain.cgImage.height + strip)
+        let pictureRows = plain.cgImage.height
+        for (x, y) in [(2, 2), (50, 30), (199, 10), (201, 10), (400, 30), (518, 2), (100, 150), (300, pictureRows - 1)] {
+            #expect(rgba(marked.cgImage, x, y) == rgba(plain.cgImage, x, y))
+        }
+        #expect(rgba(marked.cgImage, 5, pictureRows + 4)[3] == 255)       // the strip is opaque
     }
 }

@@ -43,10 +43,10 @@ I started CaptureDeck as a weekend project because I kept opening a second app e
 
 ## Two small things I like
 
-**Multi display captures label themselves.** Grab all your screens at once and each one gets a divider and a "Screen 1", "Screen 2" badge, so nobody has to guess which monitor is which. It is a setting, in case you want a clean picture.
+**Multi display captures label themselves.** Grab all your screens at once and a caption strip is added under the picture with a "Screen 1", "Screen 2" label under each display, so nobody has to guess which monitor is which. The screenshots themselves are never drawn on, and it is a setting if you want no strip.
 
 <p align="center">
-  <img src="docs/images/displays.png" alt="Two displays captured together, each with a Screen badge" width="860">
+  <img src="docs/images/displays.png" alt="Two displays captured together with a caption strip underneath" width="860">
 </p>
 
 **Quick crop.** A new capture opens with everything selected. Drag any edge inward and it crops when you let go. Undo brings it back.
