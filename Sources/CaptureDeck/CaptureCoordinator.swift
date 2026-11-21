@@ -67,7 +67,11 @@ final class CaptureCoordinator {
     }
 
     private func run(_ mode: any CaptureMode) async {
-        guard !isCapturing else { return }  // ignore hotkey repeats while a capture is in flight
+        guard !isCapturing else {
+            // Pressing the scrolling-capture shortcut again while it runs means "finish"; other repeats are ignored.
+            if mode.id == "scrollingWindow" { NotificationCenter.default.post(name: .scrollingCaptureStopRequested, object: nil) }
+            return
+        }
         isCapturing = true
         defer { isCapturing = false }
 
@@ -94,12 +98,15 @@ final class CaptureCoordinator {
         switch result {
         case .image(let image):
             if let source = image.source { lastCapture.target = source }
+            // A clipboard problem must not lose the capture: keep going, and report it afterwards.
+            var copyError: (any Error)?
             if settings.autoCopyToClipboard {
-                try clipboard.copy(image)
+                do { try clipboard.copy(image) } catch { copyError = error }
             }
             if settings.autoSave { save(image, settings: settings) }
             if settings.openEditor { openInEditor?(image.withSource(nil)) }
             if settings.playSound { NSSound(named: NSSound.Name(settings.soundName))?.play() }
+            if let copyError { throw copyError }
         }
     }
 

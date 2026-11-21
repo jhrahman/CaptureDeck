@@ -42,6 +42,8 @@ enum SettingID {
     static let editorAskBeforeDiscard = "editor.askBeforeDiscard"
     static let editorSaveOverwritesOpened = "editor.saveOverwritesOpenedFile"
     static let editorDefaultTool = "editor.defaultTool"
+    static let editorSelectAllOnOpen = "editor.selectAllOnOpen"
+    static let editorCropOnDrag = "editor.cropOnDrag"
     static let editorShowSelectionSize = "editor.showSelectionSize"
     static let editorResizeKeepProportions = "editor.resizeKeepProportions"
     static let editorBackgroundFill = "editor.backgroundFill"
@@ -110,12 +112,13 @@ enum AppSettings {
 
         // Output
         defs += [
-            .init(id: SettingID.saveFolder, section: .output, group: "Auto-save", title: "Save folder",
-                  defaultValue: .string(defaultSaveFolder), control: .folder, dependsOn: SettingID.autoSave, order: 0),
-            .init(id: SettingID.fileTemplate, section: .output, group: "Auto-save", title: "File name",
-                  help: "$Y year, $M month, $D day, $h hour, $m minute, $s second; #### = a counter (0001, 0002…).",
+            .init(id: SettingID.saveFolder, section: .output, group: "Save location", title: "Save folder",
+                  help: "Where automatic saving puts files, and where the editor's Save dialog opens.",
+                  defaultValue: .string(defaultSaveFolder), control: .folder, order: 0),
+            .init(id: SettingID.fileTemplate, section: .output, group: "Save location", title: "File name",
+                  help: "Names new captures (the editor title and Save dialog too). $Y year, $M month, $D day, $h hour, $m minute, $s second; #### = a counter (0001, 0002…).",
                   defaultValue: .string(FilenameTemplate.defaultTemplate), control: .text(placeholder: FilenameTemplate.defaultTemplate),
-                  dependsOn: SettingID.autoSave, order: 1),
+                  order: 1),
             .init(id: SettingID.format, section: .output, group: "Format", title: "Image format",
                   defaultValue: .string("png"), control: .choice([.init("png", "PNG"), .init("jpeg", "JPEG"), .init("tiff", "TIFF")]), order: 0),
             .init(id: SettingID.jpegQuality, section: .output, group: "Format", title: "JPEG quality",
@@ -161,8 +164,14 @@ enum AppSettings {
             .init(id: SettingID.editorDefaultTool, section: .editor, group: "Tools", title: "Tool selected when an image opens",
                   defaultValue: .string(EditorToolRegistry.defaultToolID),
                   control: .choice(EditorToolRegistry.descriptors.map { .init($0.id, $0.title) }), order: 0),
-            .init(id: SettingID.editorShowSelectionSize, section: .editor, group: "Tools", title: "Show the size of the selection",
+            .init(id: SettingID.editorSelectAllOnOpen, section: .editor, group: "Tools", title: "Start with the whole picture selected",
+                  help: "With the Rectangle Select tool, a new picture opens fully selected, with handles on every corner and edge to drag.",
                   defaultValue: .bool(true), control: .toggle, order: 1),
+            .init(id: SettingID.editorCropOnDrag, section: .editor, group: "Tools", title: "Crop when I let go of a dragged edge or corner",
+                  help: "Drag any edge or corner of the selected picture inward to crop it at once, without the Crop button. Undo brings it back.",
+                  defaultValue: .bool(true), control: .toggle, order: 2),
+            .init(id: SettingID.editorShowSelectionSize, section: .editor, group: "Tools", title: "Show the size of the selection",
+                  defaultValue: .bool(true), control: .toggle, order: 3),
         ]
 
         defs += [
@@ -196,6 +205,9 @@ enum AppSettings {
                 case .textColor: defs.append(def(tool.propertyTitles[.textColor].map { "\($0) color" } ?? "Text color", .string(style.textColor.hex), .color))
                 case .zoom: defs.append(def("Zoom", .int(Int(style.strength)), .stepper(2...8, unit: "×")))
                 case .strength: defs.append(def(tool.propertyTitles[.strength] ?? "Strength", .int(Int(style.strength)), .stepper(1...60, unit: "px")))
+                case .redaction:
+                    defs.append(def(tool.propertyTitles[.redaction] ?? "Hide with", .string(style.redaction.rawValue),
+                                    .choice(RedactionMode.allCases.map { .init($0.rawValue, $0.title) })))
                 case .bold: defs.append(def("Bold", .bool(style.bold), .toggle))
                 case .italic: defs.append(def("Italic", .bool(style.italic), .toggle))
                 case .alignment:

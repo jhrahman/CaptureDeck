@@ -29,7 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             FullScreenCaptureMode(),
             AllDisplaysCaptureMode(),
             RegionCaptureMode(selector: overlay),
-            ActiveWindowCaptureMode(),
+            ActiveWindowCaptureMode(selector: overlay),
+            ScrollingCaptureMode(selector: overlay),
             WindowObjectCaptureMode(selector: overlay),
             FreehandCaptureMode(selector: overlay),
             FixedSizeCaptureMode(

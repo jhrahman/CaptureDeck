@@ -11,6 +11,7 @@ enum CaptureModeIcon {
         case "allDisplays": name = "rectangle.on.rectangle"
         case "region": name = "rectangle.dashed"
         case "activeWindow": name = "macwindow"
+        case "scrollingWindow": name = "arrow.up.and.down.text.horizontal"
         case "windowObject": name = "cursorarrow.click.2"
         case "freehand": name = "lasso"
         case "fixedSize": name = "aspectratio"
