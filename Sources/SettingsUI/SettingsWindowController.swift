@@ -9,6 +9,8 @@ import SwiftUI
 public final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let store: SettingsStore
     private var window: NSWindow?
+    private static let defaultSize = NSSize(width: 900, height: 660)
+    private static let minimumSize = NSSize(width: 820, height: 580)
 
     public init(store: SettingsStore) {
         self.store = store
@@ -20,21 +22,34 @@ public final class SettingsWindowController: NSObject, NSWindowDelegate {
             let host = NSHostingController(rootView: SettingsView(store: store))
             let window = NSWindow(contentViewController: host)
             window.title = "CaptureDeck Settings"
-            window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-            window.setContentSize(NSSize(width: 660, height: 600))
+            // The brand sidebar runs the full height, under the close buttons; the title is kept for the window menu and VoiceOver.
+            window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+            window.titleVisibility = .hidden
+            window.setContentSize(Self.defaultSize)
+            window.contentMinSize = Self.minimumSize
             window.isReleasedWhenClosed = false
             window.isOpaque = false                  // glass: the desktop shows through the window
-            window.backgroundColor = Theme.surface   // shows only in the title bar, which stays solid
+            window.backgroundColor = .clear
             window.titlebarAppearsTransparent = true
             window.titlebarSeparatorStyle = .none
             window.delegate = self
             window.setFrameAutosaveName("CaptureDeckSettings")
             if !window.setFrameUsingName("CaptureDeckSettings") { window.center() }
+            // A size remembered from the earlier, narrower window must not squeeze this one.
+            if window.contentLayoutRect.width < Self.minimumSize.width || window.frame.height < Self.minimumSize.height {
+                window.setContentSize(Self.defaultSize)
+                window.center()
+            }
             self.window = window
         }
         ActivationPolicyManager.shared.retain(self)
+        let wasHidden = window?.isVisible != true
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        // The window opens with nothing focused. Otherwise the search box takes the keyboard, and with it the Return key.
+        if wasHidden {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in self?.window?.makeFirstResponder(nil) }
+        }
     }
 
     /// Closing with edits that were not applied asks what to do with them.

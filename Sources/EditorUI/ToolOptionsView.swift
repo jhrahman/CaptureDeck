@@ -21,6 +21,17 @@ final class ToolOptionsModel: ObservableObject {
     /// Shown for the area-selection tools: the selected rectangle in pixels (nil = nothing selected).
     @Published var areaSelection: CGRect?
     @Published var isAreaTool = false
+    /// The paint bucket's colour: what "Fill" paints a selected area with.
+    @Published var areaFillColor = RGBAColor.black
+    /// Pick Color: whether that tool is active, and the last colour it picked.
+    @Published var isPickTool = false
+    @Published var picked: RGBAColor?
+    /// Whether the main colour box offers "Transparent" (paint bucket fills).
+    @Published var offersTransparent = false
+    var onAreaFillColor: ((RGBAColor) -> Void)?
+    /// Extract Text: whether that tool is active, and whether it has found text to copy.
+    @Published var isTextTool = false
+    @Published var hasRecognizedText = false
     /// A status line and an extra button supplied by the active tool (Hide Text: how many words were found, and Hide All).
     @Published var toolStatus: String?
     @Published var toolButton: (title: String, symbol: String)?
@@ -29,7 +40,7 @@ final class ToolOptionsModel: ObservableObject {
     var onStyleEdited: ((AnnotationStyle) -> Void)?
     var onAction: ((ObjectAction) -> Void)?
 
-    enum ObjectAction { case duplicate, delete, bringToFront, sendToBack, crop, copyArea, deselectArea, selectAllArea, toolButton, eraseArea, fillArea }
+    enum ObjectAction { case savePDF, copyAllText, showText, copyAreaText, copyHex, copyRGB, fillWithPicked, pickFromScreen, duplicate, delete, bringToFront, sendToBack, crop, copyArea, deselectArea, selectAllArea, toolButton, eraseArea, fillArea }
 
     func title(_ property: StyleProperty, default fallback: String) -> String { titles[property] ?? fallback }
 
@@ -45,6 +56,14 @@ final class ToolOptionsModel: ObservableObject {
 /// SwiftUI also has a `TextAlignment`; this one is ours.
 private typealias Align = EditorEngine.TextAlignment
 
+/// A colour written the ways people paste it.
+enum ColorText {
+    static func hex(_ color: RGBAColor) -> String { String(color.hex.prefix(7)).uppercased() }
+    static func rgb(_ color: RGBAColor) -> String {
+        "RGB(\([color.red, color.green, color.blue].map { String(Int(($0 * 255).rounded())) }.joined(separator: ", ")))"
+    }
+}
+
 func swiftUIColor(_ c: RGBAColor) -> Color { Color(.sRGB, red: c.red, green: c.green, blue: c.blue, opacity: c.alpha) }
 
 func rgba(_ color: Color) -> RGBAColor {
@@ -59,7 +78,9 @@ struct ToolOptionsView: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             controlsBody
-                .frame(maxWidth: .infinity, alignment: .leading)
+                // May be narrower than one long line of controls: the bar then still measures the window's width (not the
+                // overflowing line's), and so knows to wrap.
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                 .background(widthProbe(ideal: true))
             if model.selectionCount > 0 && !model.isAreaTool {
                 HStack(spacing: 2) {
@@ -101,7 +122,7 @@ struct ToolOptionsView: View {
 
     private var controlsRow: some View {
         HStack(spacing: 10) {
-            Text(model.title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+            Text(model.title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary).lineLimit(1).fixedSize()
             ForEach(model.properties, id: \.self) { control(for: $0) }
             toolExtras
         }
@@ -113,6 +134,36 @@ struct ToolOptionsView: View {
         if let status = model.toolStatus { Text(status).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
     }
 
+    /// Pick Color: what was picked, its values to copy, and what to do with it next.
+    private var pickBar: some View {
+        HStack(spacing: 10) {
+            Text(model.title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+            if let color = model.picked {
+                RoundedRectangle(cornerRadius: 5).fill(swiftUIColor(color)).frame(width: 34, height: 22)
+                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.primary.opacity(0.35), lineWidth: 1))
+                Text("\(ColorText.hex(color))   \(ColorText.rgb(color))")
+                    .font(.system(size: 12, weight: .medium)).monospacedDigit().textSelection(.enabled).fixedSize()
+                actionButton("doc.on.doc", "Copy HEX") { model.onAction?(.copyHex) }
+                actionButton("doc.on.doc", "Copy RGB") { model.onAction?(.copyRGB) }
+                actionButton("paintbrush.fill", "Fill with this color") { model.onAction?(.fillWithPicked) }
+            } else {
+                Text("Click any pixel of the picture to see its color.").font(.caption).foregroundStyle(.secondary)
+            }
+            actionButton("eyedropper", "Pick from screen") { model.onAction?(.pickFromScreen) }
+        }
+    }
+
+    /// Extract Text: what to do next, and buttons for the whole picture's text.
+    private var textBar: some View {
+        HStack(spacing: 10) {
+            Text(model.title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+            actionButton("doc.on.doc", "Copy All Text") { model.onAction?(.copyAllText) }.disabled(!model.hasRecognizedText)
+            actionButton("text.alignleft", "View & Edit…") { model.onAction?(.showText) }.disabled(!model.hasRecognizedText)
+            actionButton("doc.richtext", "Save PDF…") { model.onAction?(.savePDF) }
+            if let status = model.toolStatus { Text(status).font(.caption).foregroundStyle(.secondary).lineLimit(1).fixedSize() }
+        }
+    }
+
     private var areaBar: some View {
         HStack(spacing: 10) {
             Text(model.title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
@@ -121,8 +172,11 @@ struct ToolOptionsView: View {
                     .font(.system(size: 12)).monospacedDigit().foregroundStyle(.secondary)
                 actionButton("crop", "Crop") { model.onAction?(.crop) }
                 actionButton("doc.on.doc", "Copy") { model.onAction?(.copyArea) }
+                actionButton("doc.text.viewfinder", "Copy Text") { model.onAction?(.copyAreaText) }
                 actionButton("trash", "Delete") { model.onAction?(.eraseArea) }
                 actionButton("paintbrush.fill", "Fill") { model.onAction?(.fillArea) }
+                ColorSwatchButton(color: Binding(get: { model.areaFillColor }, set: { model.onAreaFillColor?($0) }),
+                                  allowsClear: true, help: "Color that Fill paints with", clearTitle: "Transparent")
                 actionButton("xmark.circle", "Deselect") { model.onAction?(.deselectArea) }
             } else {
                 Text("Drag on the picture to choose an area, then crop, copy, delete or fill it.").font(.caption).foregroundStyle(.secondary)
@@ -138,14 +192,19 @@ struct ToolOptionsView: View {
 
     @ViewBuilder private var controlsBody: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let hint = model.hint, model.properties.isEmpty {
+            if model.isTextTool && model.properties.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) { textBar }.frame(height: 38)
+            } else if model.isPickTool && model.properties.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) { pickBar }.frame(height: 38)
+            } else if let hint = model.hint, model.properties.isEmpty {
                 HStack(spacing: 10) {
                     Text(model.title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
                     Text(hint).font(.caption).foregroundStyle(.secondary)
                 }
                 .frame(height: 38)
             } else if model.isAreaTool {
-                areaBar.frame(height: 38)
+                // Scrolls sideways in a window too narrow for all the buttons, so none is ever squeezed or cut off.
+                ScrollView(.horizontal, showsIndicators: false) { areaBar.fixedSize() }.frame(height: 38)
             } else if model.wraps {
                 WrapLayout(spacing: 10, rowSpacing: 4) {
                     Text(model.title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
@@ -169,7 +228,7 @@ struct ToolOptionsView: View {
         case .stroke:
             labelled(model.title(.stroke, default: "Color")) {
                 ColorSwatchButton(color: Binding(get: { model.style.strokeColor }, set: { c in model.edit { $0.strokeColor = c } }),
-                                  allowsClear: false, help: "Color")
+                                  allowsClear: model.offersTransparent, help: model.title(.stroke, default: "Color"), clearTitle: "Transparent")
             }
         case .fill:
             labelled(model.title(.fill, default: "Fill")) {
@@ -230,6 +289,7 @@ struct ToolOptionsView: View {
                     .frame(width: 80)
                 Text("\(Int(model.style.strength))").monospacedDigit().frame(width: 24, alignment: .trailing).font(.caption)
             }
+            .help(model.offersTransparent ? "How different a neighboring color may be and still get filled. Higher fills more." : "")
         case .redaction:
             labelled(model.title(.redaction, default: "Hide with")) {
                 Picker("Hide with", selection: Binding(get: { model.style.redaction }, set: { v in model.edit { $0.redaction = v } })) {
@@ -266,7 +326,9 @@ struct ToolOptionsView: View {
 
     private func labelled<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: 5) {
-            Text(title).font(.caption).foregroundStyle(.secondary)
+            // Never squeezed: SwiftUI could shrink a name to a few points ("Hid / e / w…") even with room to spare. A bar
+            // that really is too narrow moves to two lines instead.
+            Text(title).font(.caption).foregroundStyle(.secondary).lineLimit(1).fixedSize()
             content()
         }
     }

@@ -583,12 +583,12 @@ final class CalloutTool: EditorTool {
 
 // MARK: - Paint bucket
 
-/// Click an area to fill it with a color.
-@MainActor
 /// The paint bucket. While the pointer moves, the region a click would fill is previewed in the chosen colour, so there are no
 /// surprises; clicking fills it. Hold Option to pick the colour from the picture instead (the eyedropper, without leaving the tool).
+@MainActor
 final class FillTool: OverlayTool {
     let descriptor = EditorToolRegistry.fill
+    let statusText = "Click an area to fill it · ⌥-click to use a color from the picture"
     var overlayChanged: (() -> Void)?
 
     private var previewMask: CGImage?
@@ -622,7 +622,9 @@ final class FillTool: OverlayTool {
     func pointerMoved(to point: CGPoint, context: ToolContext) -> Bool {
         let picture = context.document.workingImage.cgImage
         let id = ObjectIdentifier(picture)
-        previewColor = context.style.strokeColor.cgColor.copy(alpha: 0.55) ?? previewColor
+        let chosen = context.style.strokeColor
+        // A transparent fill has no colour to preview, so the region that will be erased is washed in white.
+        previewColor = chosen.alpha == 0 ? CGColor(gray: 1, alpha: 0.65) : chosen.cgColor.copy(alpha: 0.55) ?? previewColor
         guard context.document.imageBounds.contains(point) else {
             let had = previewMask != nil
             previewMask = nil

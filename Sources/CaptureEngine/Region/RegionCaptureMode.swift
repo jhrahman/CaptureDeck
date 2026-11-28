@@ -167,3 +167,10 @@ public struct FreehandCaptureMode: CaptureMode {
         try await SnapshotRegionCapture.run(context, kind: .freehand, selector: selector, displaysProvider: displaysProvider)
     }
 }
+
+/// Frozen pictures of every display, for features other than screenshots (screen recording) that use the selection overlay.
+public enum SelectionSnapshots {
+    public static func take(grabber: any ScreenGrabber) async throws -> [DisplaySnapshot] {
+        try await SnapshotRegionCapture.snapshots(CaptureContext(grabber: grabber, includeCursor: false), displaysProvider: DisplayLocator.allDisplays)
+    }
+}

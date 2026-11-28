@@ -17,6 +17,10 @@ let package = Package(
         .target(name: "DesignSystem"),
         // Getting pixels: ScreenGrabber, capture modes. Never imports SwiftUI.
         .target(name: "CaptureEngine", dependencies: ["CoreModels"]),
+        // Screen recording: capture, microphone, movie writing and export. No UI.
+        .target(name: "RecordingEngine"),
+        // Recording controls, click and key highlights, and the review window.
+        .target(name: "RecordingUI", dependencies: ["RecordingEngine", "DesignSystem"]),
         // System services: permissions, clipboard, global hotkeys.
         .target(name: "Platform", dependencies: ["CoreModels"]),
         // Settings registry and typed store: the only code that touches UserDefaults. Features read values through it.
@@ -30,7 +34,7 @@ let package = Package(
         // App shell and composition root.
         .executableTarget(
             name: "CaptureDeck",
-            dependencies: ["CoreModels", "CaptureEngine", "Platform", "DesignSystem", "EditorUI", "Settings", "SettingsUI"]
+            dependencies: ["CoreModels", "CaptureEngine", "Platform", "DesignSystem", "EditorUI", "Settings", "SettingsUI", "RecordingEngine", "RecordingUI"]
         ),
         .testTarget(name: "CoreModelsTests", dependencies: ["CoreModels"]),
         .testTarget(name: "DesignSystemTests", dependencies: ["DesignSystem"]),
@@ -39,5 +43,7 @@ let package = Package(
         .testTarget(name: "EditorUITests", dependencies: ["EditorUI", "EditorEngine", "CoreModels"]),
         .testTarget(name: "EditorEngineTests", dependencies: ["EditorEngine", "CoreModels"]),
         .testTarget(name: "PlatformTests", dependencies: ["Platform", "CoreModels"]),
+        .testTarget(name: "RecordingEngineTests", dependencies: ["RecordingEngine"]),
+        .testTarget(name: "RecordingUITests", dependencies: ["RecordingUI", "RecordingEngine"]),
     ]
 )

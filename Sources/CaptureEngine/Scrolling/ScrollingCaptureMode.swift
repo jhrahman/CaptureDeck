@@ -135,9 +135,10 @@ public struct ScrollingCaptureMode: CaptureMode {
         let first = try await grab()
         let scale = first.scale
         debug.save(first.cgImage, name: "frame-0")
-        let park = await MainActor.run { session.pointerParkingSpot }
-        await driver.begin(parkingPointerAt: park)
-        defer { Task { await driver.end() } }
+        // The mouse pointer is left alone: it stays free for the Done and Cancel buttons, or a second click on the window.
+        await driver.begin(windowID: windowID, bounds: bounds, speed: context.scrollSpeed) {
+            await MainActor.run { session.reason != nil }
+        }
 
         var stitcher = ScrollStitcher()
         var axis = ScrollStitcher.Axis.vertical

@@ -18,6 +18,9 @@ struct ToolContext {
     var cropOnSelectionDrag = false
     /// Rectangle select: keep the whole picture selected, so every edge can be dragged (also again after a crop).
     var keepWholeImageSelected = false
+    /// Extract Text: how to read, and whether copied text keeps the picture's line breaks.
+    var textOptions = TextReadingOptions()
+    var keepsLineBreaks = true
 
     /// A distance measured in screen points, expressed in image pixels.
     func imagePixels(forScreenPoints points: CGFloat) -> CGFloat { points / max(zoom, 0.0001) * (NSScreen.main?.backingScaleFactor ?? 2) }
@@ -34,8 +37,14 @@ enum TextEditKind {
 protocol ToolHost: AnyObject {
     /// Opens the inline text editor over `rect` (image pixels). `annotationID` is set when editing existing text.
     func editText(annotationID: UUID?, rect: CGRect, text: String, style: AnnotationStyle, kind: TextEditKind)
-    /// The Eyedropper picked this colour (the editor makes it the Paint Bucket's colour and switches to it).
+    /// The Eyedropper picked this colour (the editor shows it, with its values, in the properties bar).
     func pickedColor(_ color: RGBAColor)
+    /// Extract Text read this from the picture because the user asked to copy it.
+    func recognizedText(_ text: String)
+}
+
+extension ToolHost {
+    func recognizedText(_ text: String) {}
 }
 
 /// A tool the user can pick. Tools are added by registering them in `EditorToolRegistry`; the toolbar, the Tools menu,
@@ -223,6 +232,9 @@ public enum EditorToolRegistry {
         styleProperties: [.redaction, .strength, .stroke],
         defaultStyle: AnnotationStyle(strokeColor: .black, strength: 14, redaction: .solid),
         iconColor: "#475569", propertyTitles: redactionTitles)
+    public static let extractText = EditorToolDescriptor(
+        id: "extractText", title: "Extract Text (OCR)", symbol: "doc.text.viewfinder", key: "j", kind: .draw, styleProperties: [],
+        iconColor: "#22D3EE")
     public static let pickColor = EditorToolDescriptor(
         id: "pickColor", title: "Pick Color", symbol: "eyedropper", key: "y", kind: .draw, styleProperties: [],
         iconColor: "#F59E0B")
@@ -242,7 +254,7 @@ public enum EditorToolRegistry {
         [rectangle, roundedRectangle, ellipse],
         [line, arrow, doubleArrow, pencil],
         [text, callout, ovalCallout, step, stepLetter],
-        [highlighter, redactBrush, hideText, pickColor, fill, blur, pixelate, spotlight, magnifier],
+        [highlighter, redactBrush, hideText, extractText, pickColor, fill, blur, pixelate, spotlight, magnifier],
     ]
 
     /// Which tool draws each kind of shape, so selecting a shape can show that tool's properties and names.
@@ -298,6 +310,7 @@ public enum EditorToolRegistry {
             ShapeDragTool(highlighter) { a, b, square in HighlighterShape(rect: ShapeDragTool.rect(a, b, square: square)) },
             RedactBrushTool(),
             HideTextTool(),
+            ExtractTextTool(),
             EyedropperTool(),
             FillTool(),
             ShapeDragTool(blur) { a, b, _ in BlurShape(rect: ShapeDragTool.rect(a, b, square: false)) },

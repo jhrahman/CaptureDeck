@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let appearance = AppearanceController()
     private var store: SettingsStore!
     private var coordinator: CaptureCoordinator!
+    private var recording: RecordingCoordinator!
     private var hotkeys: HotkeyBindings!
     private var panel: CapturePanelController!
     private var editor: EditorStore!
@@ -37,10 +38,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 presets: { [weak self] in FixedSizeText.parseList(self?.store.string(SettingID.fixedPresets) ?? "") },
                 selector: overlay),
             RepeatLastCaptureMode(store: lastCapture),
+            TextCaptureMode(selector: overlay),
         ]
 
         store = SettingsStore(registry: AppSettings.registry(modes: modes))
         coordinator = CaptureCoordinator(modes: modes, lastCapture: lastCapture, store: store)
+        coordinator.textDelivery = TextCaptureDelivery(store: store)
+        recording = RecordingCoordinator(store: store, selector: overlay)
+        recording.isScreenshotRunning = { [weak coordinator] in coordinator?.isCapturing ?? false }
         settingsWindow = SettingsWindowController(store: store)
         editor = EditorStore(settings: store)
         editor.openSettings = { [weak self] in self?.settingsWindow.show() }
@@ -54,16 +59,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel = CapturePanelController(
             modes: modes, store: store,
             extras: { [weak self] in
-                [PanelExtra(id: "openImage", symbol: "folder", title: "Open Image in Editor…") { self?.editor.openDocument(nil) },
-                 PanelExtra(id: "clipboard", symbol: "doc.on.clipboard", title: "Edit Image from Clipboard") { self?.editor.pasteAsNewTab(nil) }]
+                guard let self, self.store.bool(SettingID.panelEditorButtons) else { return [] }
+                return [PanelExtra(id: "openImage", symbol: "folder", title: "Open Image in Editor…") { self.editor.openDocument(nil) },
+                 PanelExtra(id: "clipboard", symbol: "doc.on.clipboard", title: "Edit Image from Clipboard") { self.editor.pasteAsNewTab(nil) }]
+            },
+            recordButton: { [weak self] in
+                PanelExtra(id: "record", symbol: "record.circle", title: "Record Screen") { self?.recording.toggle() }
             },
             onDropImages: { [weak self] urls in self?.editor.openImages(at: urls) }
         ) { [coordinator] id in coordinator?.run(modeID: id) }
         coordinator.beforeCapture = { [panel, editor] in await panel?.suspend(); await editor?.suspendWindows() }
-        coordinator.afterCapture = { [panel, editor] in panel?.resume(); editor?.resumeWindows() }
+        coordinator.afterCapture = { [panel, editor, recording] in
+            if recording?.isActive != true { panel?.resume() }        // it must not reappear in a running recording
+            editor?.resumeWindows()
+        }
+        recording.beforeRecording = { [panel] in await panel?.suspend() }
+        recording.afterRecording = { [panel] in panel?.resume() }
         coordinator.openInEditor = { [editor] image in editor?.open(image: image) }
 
-        statusItem = StatusItemController(coordinator: coordinator, panel: panel, store: store, editor: editor) { [weak self] in
+        statusItem = StatusItemController(coordinator: coordinator, recording: recording, panel: panel, store: store, editor: editor) { [weak self] in
             self?.settingsWindow.show()
         }
 
@@ -71,10 +85,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for mode in modes {
             hotkeys.bind(settingID: SettingID.hotkey(mode.id)) { [coordinator] in coordinator?.run(modeID: mode.id) }
         }
+        hotkeys.bind(settingID: SettingID.recordHotkey) { [recording] in recording?.toggle() }
+        hotkeys.bind(settingID: SettingID.recordPauseHotkey) { [recording] in recording?.togglePause() }
+        for source in RecordingSourceKind.allCases {
+            hotkeys.bind(settingID: SettingID.recordSourceHotkey(source.rawValue)) { [recording] in recording?.start(source) }
+        }
+        hotkeys.bind(settingID: SettingID.recordLastRegionHotkey) { [recording] in recording?.startLastRegion() }
+        recording.setEscapeHandler = { [hotkeys] action in
+            hotkeys?.setTemporary(KeyShortcut(keyCode: 53, modifiers: [], keyLabel: "Esc"), name: "recording.cancelCountdown", action: action)
+        }
         hotkeys.bind(settingID: SettingID.togglePanelHotkey) { [panel] in panel?.toggle() }
         hotkeys.start()
 
         panel.showAtLaunch(minimized: store.bool(SettingID.startMinimized))
+        recording.recoverUnsaved()
 
         syncLoginItem()
         store.changes.filter { $0 == SettingID.launchAtLogin }.sink { [weak self] _ in self?.applyLoginItem() }.store(in: &subscriptions)
@@ -83,6 +107,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             NSSound(named: NSSound.Name(self.store.string(SettingID.soundName)))?.play()
         }.store(in: &subscriptions)
+    }
+
+    /// A running recording is closed properly before quitting, never cut off.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard recording?.isActive == true else { return .terminateNow }
+        Task {
+            await recording.finishForQuit()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 
     // MARK: Launch at login

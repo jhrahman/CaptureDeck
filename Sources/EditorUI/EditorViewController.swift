@@ -14,6 +14,10 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
     private let canvas = CanvasView(frame: .zero)
     private let statusLabel = NSTextField(labelWithString: "")
     private let zoomModel = ZoomModel()
+    /// The colour the Pick Color tool last picked.
+    private var lastPicked: RGBAColor?
+    /// Where copied colour values go (replaceable in tests).
+    var colorPasteboard = NSPasteboard.general
     /// The colour last picked for the Paint Bucket (used when there is no saved setting to hold it).
     private var bucketColor: RGBAColor?
     private var cancellables = Set<AnyCancellable>()
@@ -131,13 +135,24 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
                                       style: self.currentToolStyle(), host: self)
             context.cropOnSelectionDrag = self.settings?.bool("editor.cropOnDrag") ?? true
             context.keepWholeImageSelected = self.settings?.bool("editor.selectAllOnOpen") ?? true
+            context.textOptions = self.textOptions
+            context.keepsLineBreaks = self.keepsLineBreaks
             return context
         }
         canvas.previewProvider = { [weak self] in self?.activeTool.previewAnnotations ?? [] }
         optionsModel.$wraps.removeDuplicates()
             .sink { [weak self] wraps in self?.applyOptionsHeight(wraps: wraps) }.store(in: &cancellables)
         canvas.onToolStatusChanged = { [weak self] in self?.syncOptions() }
-        canvas.onPickColor = { [weak self] color in self?.applyPickedColor(color, switchToBucket: false) }
+        // Extract Text reads the picture as it looks: after anything on it changes (an undo, say), it reads again.
+        document.$annotations.map { _ in () }.merge(with: document.$workingImage.map { _ in () })
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.refreshTextTool() }
+            .store(in: &cancellables)
+        settings?.changes.filter { $0.hasPrefix("editor.ocr.") }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.refreshTextTool() }
+            .store(in: &cancellables)
+        canvas.onPickColor = { [weak self] color in self?.applyPickedColor(color) }
         canvas.onExitTool = { [weak self] in self?.leaveCurrentTool() }
         canvas.onObjectAction = { [weak self] action in self?.perform(action) }
         canvas.onSelectObject = { [weak self] point in
@@ -174,6 +189,7 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
         ribbonModel.onSelect = { [weak self] descriptor in self?.selectTool(id: descriptor.id) }
         optionsModel.onStyleEdited = { [weak self] style in self?.styleEdited(style) }
         optionsModel.onAction = { [weak self] action in self?.perform(action) }
+        optionsModel.onAreaFillColor = { [weak self] color in self?.setBucketColor(color) }
         syncOptions()
 
         settings?.changes
@@ -235,15 +251,112 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
     /// Delete the selected area: those pixels become transparent, and the area stays selected so it can be filled next.
     func eraseArea() {
         guard document.selection != nil, document.eraseSelection() else { return }
-        ToastView.show("Area deleted · fill it with Fill, or the Paint Bucket", symbol: "trash", in: view.window)
+        ToastView.show("Area deleted · choose a color next to Fill to paint it", symbol: "trash", in: view.window)
     }
 
-    /// Paint the selected area with the colour last picked (the Paint Bucket's colour).
+    /// Paint the selected area with the Paint Bucket's colour (shown next to the Fill button). Transparent erases it.
     func fillArea() {
         guard document.selection != nil else { return }
-        var color = ToolStyleSetting.style(for: EditorToolRegistry.fill, settings: settings).strokeColor
-        if settings == nil, let bucketColor { color = bucketColor }
-        guard document.fillSelection(with: RGBAColor(red: color.red, green: color.green, blue: color.blue, alpha: 1)) else { return }
+        let color = bucketStyle().strokeColor
+        if color.alpha == 0 { _ = document.eraseSelection(); return }
+        _ = document.fillSelection(with: RGBAColor(red: color.red, green: color.green, blue: color.blue, alpha: 1))
+    }
+
+    private func bucketStyle() -> AnnotationStyle {
+        // The area bar shows this whatever tool is in use, so it must cope with a store that lacks the bucket's settings.
+        let key = ToolStyleSetting.id(EditorToolRegistry.fill, .stroke)
+        let stored = settings.flatMap { $0.registry.definition(for: key) == nil ? nil : $0 }
+        var style = ToolStyleSetting.style(for: EditorToolRegistry.fill, settings: stored)
+        if stored == nil, let bucketColor { style.strokeColor = bucketColor }
+        return style
+    }
+
+    private func setBucketColor(_ color: RGBAColor) {
+        var style = bucketStyle()
+        style.strokeColor = color
+        if settings?.registry.definition(for: ToolStyleSetting.id(EditorToolRegistry.fill, .stroke)) != nil {
+            ToolStyleSetting.save(style, for: EditorToolRegistry.fill, settings: settings)
+        }
+        bucketColor = color
+        syncOptions()
+    }
+
+    // MARK: Text in the picture (OCR)
+
+    /// A saved choice, or the fallback when there is no store (tests) or it lacks the setting.
+    private func stored<T>(_ id: String, _ read: (SettingsStore) -> T, otherwise: T) -> T {
+        guard let settings, settings.registry.definition(for: id) != nil else { return otherwise }
+        return read(settings)
+    }
+
+    var textOptions: TextReadingOptions {
+        let language = stored(TextReadingSetting.language, { $0.string(TextReadingSetting.language) }, otherwise: "")
+        return TextReadingOptions(language: language.isEmpty ? nil : language,
+                                  correctsSpelling: stored(TextReadingSetting.correctsSpelling, { $0.bool(TextReadingSetting.correctsSpelling) }, otherwise: false))
+    }
+
+    var keepsLineBreaks: Bool {
+        stored(TextReadingSetting.keepsLineBreaks, { $0.bool(TextReadingSetting.keepsLineBreaks) }, otherwise: true)
+    }
+
+    /// Presents the text for editing. Set by the window; without one, the text is not shown.
+    var onShowText: ((String) -> Void)?
+
+    private var textTool: ExtractTextTool? { activeTool as? ExtractTextTool }
+
+    private func refreshTextTool() {
+        guard let textTool, let context = canvas.toolContext?() else { return }
+        textTool.prepare(context: context)
+    }
+
+    /// Reads the text of the selected area, or of the whole picture when nothing is selected, as the picture looks now.
+    func readText() async -> String {
+        let image = document.flattenedImage().cgImage
+        var area = document.selection
+        if case .rect(let rect)? = area, rect.integral == document.imageBounds { area = nil }
+        let (options, chosen, keeps) = (textOptions, area, keepsLineBreaks)
+        return await Task.detached(priority: .userInitiated) {
+            let text = TextLayout.text(from: VisiblePicture.words(in: image, area: chosen, options: options), keepsLineBreaks: keeps)
+            let codes = CodeReader.codes(in: image).filter { code in
+                guard let chosen else { return true }
+                return chosen.bounds.contains(CGPoint(x: code.rect.midX, y: code.rect.midY))
+            }
+            return CodeReader.combined(text: text, codes: codes)
+        }.value
+    }
+
+    /// The menu commands and the "Copy Text" button: read, then copy or show.
+    func extractText(show: Bool) {
+        ToastView.show("Reading the text…", symbol: "doc.text.viewfinder", in: view.window)
+        Task {
+            let text = await readText()
+            if show, !text.isEmpty { onShowText?(text) } else { copyText(text) }
+        }
+    }
+
+    /// The whole picture, as it looks now, as a PDF with selectable text.
+    func searchablePDF() async -> Data? {
+        let picture = document.flattenedImage()
+        let (image, scale, options) = (picture.cgImage, picture.scale, textOptions)
+        return await Task.detached(priority: .userInitiated) {
+            SearchablePDF.data(image: image, words: TextDetector.words(in: image, options: options), scale: scale)
+        }.value
+    }
+
+    /// Asks the window to save a searchable PDF. Set by the window.
+    var onSavePDF: (() -> Void)?
+
+    /// Extract Text asked to copy what the user clicked or boxed.
+    func recognizedText(_ text: String) { copyText(text) }
+
+    func copyText(_ text: String) {
+        guard !text.isEmpty else {
+            ToastView.show("No text found there", symbol: "doc.text.magnifyingglass", in: view.window)
+            return                                                    // the clipboard keeps what it had
+        }
+        colorPasteboard.clearContents()
+        colorPasteboard.setString(text, forType: .string)
+        ToastView.show("Copied \(TextLayout.wordCount(text))", symbol: "doc.on.doc", in: view.window)
     }
 
     // MARK: Picked colours
@@ -252,29 +365,37 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
     var activeToolID: String { activeTool.descriptor.id }
     var optionsStyle: AnnotationStyle { optionsModel.style }
     var currentStyle: AnnotationStyle { currentToolStyle() }
+    var shownPickedColor: RGBAColor? { optionsModel.picked }
+    var shownAreaFillColor: RGBAColor { optionsModel.areaFillColor }
     func simulateOptionPick(_ color: RGBAColor) { canvas.onPickColor?(color) }
     func simulatePointer(at point: CGPoint) { canvas.handlePointerMoved(to: point) }
+    func simulateAction(_ action: ToolOptionsModel.ObjectAction) { perform(action) }
+    func simulateAreaFillColor(_ color: RGBAColor) { optionsModel.onAreaFillColor?(color) }
 
-    /// The Eyedropper tool picked a colour.
-    func pickedColor(_ color: RGBAColor) { applyPickedColor(color, switchToBucket: true) }
+    /// Pick Color picked a colour. It is only shown (with its values); nothing else changes until the user chooses what to
+    /// do with it in the bar.
+    func pickedColor(_ color: RGBAColor) {
+        lastPicked = RGBAColor(red: color.red, green: color.green, blue: color.blue, alpha: 1)
+        syncOptions()
+    }
 
-    /// A colour picked from the picture. From the Eyedropper tool it becomes the Paint Bucket's colour and the Paint Bucket is
-    /// chosen, ready to fill. Picked with Option held inside a colour tool, it becomes that tool's own colour and nothing else changes.
-    private func applyPickedColor(_ picked: RGBAColor, switchToBucket: Bool) {
+    private func copyColor(_ text: String) {
+        colorPasteboard.clearContents()
+        colorPasteboard.setString(text, forType: .string)
+        ToastView.show("Copied \(text)", symbol: "doc.on.doc", in: view.window)
+    }
+
+    private func fillWithPickedColor() {
+        guard let color = lastPicked else { return }
+        setBucketColor(color)
+        selectTool(id: EditorToolRegistry.fill.id)
+    }
+
+    /// Option-click inside a colour tool: the picked colour becomes that tool's own colour.
+    private func applyPickedColor(_ picked: RGBAColor) {
         let color = RGBAColor(red: picked.red, green: picked.green, blue: picked.blue, alpha: 1)
-        let hex = String(color.hex.prefix(7)).uppercased()
-        if switchToBucket {
-            var style = ToolStyleSetting.style(for: EditorToolRegistry.fill, settings: settings)
-            style.strokeColor = color
-            ToolStyleSetting.save(style, for: EditorToolRegistry.fill, settings: settings)
-            bucketColor = color
-            selectTool(id: EditorToolRegistry.fill.id)
-            syncOptions()
-            ToastView.show("Picked \(hex) · click a region to fill it", symbol: "eyedropper", in: view.window)
-        } else {
-            optionsModel.edit { $0.strokeColor = color }
-            ToastView.show("Picked \(hex)", symbol: "eyedropper", in: view.window)
-        }
+        optionsModel.edit { $0.strokeColor = color }
+        ToastView.show("Picked \(ColorText.hex(color))", symbol: "eyedropper", in: view.window)
     }
 
     func selectTool(id: String) {
@@ -429,6 +550,14 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
         optionsModel.toolStatus = (activeTool as? OverlayTool).flatMap { $0.statusText.isEmpty ? nil : $0.statusText }
         optionsModel.toolButton = (activeTool as? OverlayTool)?.barButton
         optionsModel.isAreaTool = descriptor.kind == .pixelSelection
+        optionsModel.isPickTool = selected.isEmpty && descriptor.id == EditorToolRegistry.pickColor.id
+        optionsModel.picked = lastPicked
+        optionsModel.areaFillColor = bucketStyle().strokeColor
+        let reader = selected.isEmpty ? textTool : nil
+        optionsModel.isTextTool = reader != nil
+        optionsModel.hasRecognizedText = reader?.hasText ?? false
+        optionsModel.offersTransparent = selected.isEmpty ? descriptor.id == EditorToolRegistry.fill.id
+            : selected.allSatisfy { $0.shape.shapeType == FillShape.typeID }
         optionsModel.areaSelection = descriptor.kind == .pixelSelection ? areaBounds(document.selection) : nil
         // The bar stays put for every tool, so the canvas does not jump when you switch tools or select.
         optionsBar?.isHidden = false
@@ -506,6 +635,14 @@ final class EditorViewController: NSViewController, ToolHost, NSTextViewDelegate
         case .selectAllArea: document.selectAll()
         case .eraseArea: eraseArea()
         case .fillArea: fillArea()
+        case .copyAllText: if let textTool, textTool.hasText { copyText(textTool.allText(keepsLineBreaks: keepsLineBreaks)) }
+        case .showText: if let textTool, textTool.hasText { onShowText?(textTool.allText(keepsLineBreaks: keepsLineBreaks)) }
+        case .copyAreaText: extractText(show: false)
+        case .savePDF: onSavePDF?()
+        case .copyHex: if let color = lastPicked { copyColor(ColorText.hex(color)) }
+        case .copyRGB: if let color = lastPicked { copyColor(ColorText.rgb(color)) }
+        case .fillWithPicked: fillWithPickedColor()
+        case .pickFromScreen: ScreenColorSampler.pick { [weak self] color in self?.pickedColor(color) }
         case .toolButton:
             if let overlay = activeTool as? OverlayTool, let context = canvas.toolContext?() { overlay.pressBarButton(context: context) }
         case .bringToFront: document.reorderAnnotations(ids: ids, .toFront)

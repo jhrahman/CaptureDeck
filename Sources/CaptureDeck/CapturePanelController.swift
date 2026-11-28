@@ -14,16 +14,18 @@ final class CapturePanelController {
     private let store: SettingsStore
     private let run: (String) -> Void
     private let extras: () -> [PanelExtra]
+    private let recordButton: () -> PanelExtra
     private var suspended = false
     private var subscription: AnyCancellable?
 
     /// `onDropImages` receives image files dropped on the panel.
     init(modes: [any CaptureMode], store: SettingsStore, extras: @escaping () -> [PanelExtra],
-         onDropImages: @escaping ([URL]) -> Void, run: @escaping (String) -> Void) {
+         recordButton: @escaping () -> PanelExtra, onDropImages: @escaping ([URL]) -> Void, run: @escaping (String) -> Void) {
         self.modes = modes
         self.store = store
         self.run = run
         self.extras = extras
+        self.recordButton = recordButton
         host = NSHostingView(rootView: CapturePanelView(modes: modes, buttonSize: .medium, shortcuts: [:], extras: [], run: run))
 
         panel = NSPanel(contentRect: CGRect(origin: .zero, size: host.fittingSize),
@@ -59,7 +61,7 @@ final class CapturePanelController {
         for mode in modes { shortcuts[mode.id] = store.shortcut(SettingID.hotkey(mode.id))?.displayString }
 
         host.rootView = CapturePanelView(modes: shown, buttonSize: size, shortcuts: shortcuts,
-                                         extras: store.bool(SettingID.panelEditorButtons) ? extras() : [], run: run)
+                                         extras: (store.bool(SettingID.panelShowsRecord) ? [recordButton()] : []) + extras(), run: run)
         let fitting = host.fittingSize
         if panel.frame.size != fitting {
             // Keep the top-left corner where it is while the size changes.

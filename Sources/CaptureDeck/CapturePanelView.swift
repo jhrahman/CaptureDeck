@@ -16,6 +16,7 @@ enum CaptureModeIcon {
         case "freehand": name = "lasso"
         case "fixedSize": name = "aspectratio"
         case "repeatLast": name = "arrow.counterclockwise"
+        case "captureText": name = "doc.text.viewfinder"
         default: name = "camera"
         }
         return NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil ? name : "camera"

@@ -94,6 +94,9 @@ public struct FillShape: BackdropAnnotationShape, Codable, Equatable {
 
     public init(seed: CGPoint) { self.seed = seed }
 
+    /// Whether a fill in this style makes its region transparent. (Its opacity setting does not apply then.)
+    public static func erases(_ style: AnnotationStyle) -> Bool { style.strokeColor.alpha == 0 }
+
     /// A small square around the seed, so the fill can be clicked, selected and deleted.
     public var geometryBounds: CGRect { CGRect(x: seed.x - 6, y: seed.y - 6, width: 12, height: 12) }
 
@@ -105,7 +108,12 @@ public struct FillShape: BackdropAnnotationShape, Codable, Equatable {
         context.translateBy(x: 0, y: h)                         // our space is y-down; masks and images are y-up
         context.scaleBy(x: 1, y: -1)
         context.clip(to: CGRect(x: 0, y: 0, width: w, height: h), mask: mask)
-        context.setFillColor(style.strokeColor.cgColor)
+        if Self.erases(style) {                                 // a transparent fill removes the region
+            context.setBlendMode(.clear)
+            context.setFillColor(CGColor(gray: 0, alpha: 1))
+        } else {
+            context.setFillColor(style.strokeColor.cgColor)
+        }
         context.fill(CGRect(x: 0, y: 0, width: w, height: h))
         context.restoreGState()
     }

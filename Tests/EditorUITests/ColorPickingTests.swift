@@ -22,7 +22,8 @@ struct ColorPickingTests {
         return CapturedImage(cgImage: ctx.makeImage()!, scale: 1)
     }
 
-    private func wait(_ seconds: TimeInterval = 10, until condition: () -> Bool) async {
+    /// The limit is generous on purpose: other tests keep the main actor busy for many seconds at a time in a full run.
+    private func wait(_ seconds: TimeInterval = 60, until condition: () -> Bool) async {
         let end = Date().addingTimeInterval(seconds)
         while !condition(), Date() < end { try? await Task.sleep(nanoseconds: 30_000_000) }
     }
@@ -84,15 +85,75 @@ struct ColorPickingTests {
 
     // MARK: Editor wiring
 
-    @Test func pickingWithTheEyedropperSetsTheBucketColourAndSwitchesToIt() {
+    private func editor() -> (EditorViewController, EditorDocument) {
         let doc = EditorDocument(original: Self.twoColourImage(), title: "t")
         let controller = EditorViewController(document: doc, settings: nil)
         _ = controller.view
+        return (controller, doc)
+    }
+
+    @Test func pickingShowsTheColourAndStaysInTheTool() {
+        let (controller, _) = editor()
         controller.selectTool(id: EditorToolRegistry.pickColor.id)
-        #expect(controller.activeToolID == "pickColor")
+        let bucketBefore = controller.shownAreaFillColor
         controller.pickedColor(RGBAColor(red: 0.2, green: 0.4, blue: 0.6))
+        #expect(controller.activeToolID == "pickColor")
+        #expect(controller.shownPickedColor == RGBAColor(red: 0.2, green: 0.4, blue: 0.6))
+        #expect(controller.shownAreaFillColor == bucketBefore)                          // nothing else changes by itself
+    }
+
+    @Test func fillWithThisColorSendsItToThePaintBucket() {
+        let (controller, _) = editor()
+        controller.selectTool(id: EditorToolRegistry.pickColor.id)
+        controller.pickedColor(RGBAColor(red: 0.2, green: 0.4, blue: 0.6))
+        controller.simulateAction(.fillWithPicked)
         #expect(controller.activeToolID == "fill")
         #expect(abs(controller.currentStyle.strokeColor.green - 0.4) < 0.001)
+    }
+
+    @Test func theValuesCanBeCopied() {
+        let (controller, _) = editor()
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        controller.colorPasteboard = board
+        controller.pickedColor(RGBAColor(red: 1, green: 0.5, blue: 0))
+        controller.simulateAction(.copyHex)
+        #expect(board.string(forType: .string) == "#FF8000")
+        controller.simulateAction(.copyRGB)
+        #expect(board.string(forType: .string) == "RGB(255, 128, 0)")
+    }
+
+    @Test func pickFromScreenShowsWhatTheSamplerReturns() {
+        let original = ScreenColorSampler.pick
+        defer { ScreenColorSampler.pick = original }
+        ScreenColorSampler.pick = { $0(RGBAColor(red: 0, green: 1, blue: 0)) }
+        let (controller, _) = editor()
+        controller.selectTool(id: EditorToolRegistry.pickColor.id)
+        controller.simulateAction(.pickFromScreen)
+        #expect(controller.shownPickedColor == RGBAColor(red: 0, green: 1, blue: 0))
+    }
+
+    @Test func theColourNextToFillIsWhatFillPaints() throws {
+        let (controller, doc) = editor()
+        controller.simulateAreaFillColor(RGBAColor(red: 0, green: 0, blue: 1))
+        #expect(controller.shownAreaFillColor == RGBAColor(red: 0, green: 0, blue: 1))
+        doc.setSelection(.rect(CGRect(x: 10, y: 10, width: 40, height: 40)))
+        controller.fillArea()
+        #expect(try #require(PixelSampler(image: doc.workingImage.cgImage)?.color(x: 20, y: 20)).blue > 0.99)
+        controller.simulateAreaFillColor(.clear)                                        // "Transparent"
+        controller.fillArea()
+        #expect(try #require(PixelSampler(image: doc.workingImage.cgImage)?.color(x: 20, y: 20)).alpha == 0)
+    }
+
+    @Test func aTransparentBucketFillErasesOnlyItsRegion() throws {
+        let doc = EditorDocument(original: Self.twoColourImage(), title: "t")
+        var style = EditorToolRegistry.fill.defaultStyle
+        style.strokeColor = .clear
+        style.opacity = 0.5                                                             // does not apply to a transparent fill
+        FillTool().mouseUp(at: CGPoint(x: 50, y: 50), context: ToolContext(document: doc, zoom: 2, style: style))
+        let result = try #require(PixelSampler(image: doc.flattenedImage().cgImage))
+        #expect(try #require(result.color(x: 50, y: 50)).alpha == 0)
+        #expect(try #require(result.color(x: 300, y: 50)).alpha == 1)
     }
 
     @Test func optionPickingSetsTheActiveToolsOwnColourWithoutSwitching() {
@@ -143,9 +204,22 @@ struct ColorPickingSnapshotTests {
         controller.simulatePointer(at: CGPoint(x: 480, y: 112))                          // just under the blue header, near its edge
         try UXSnapshotTests.render(controller, width: 1100, height: 640, dark: true, name: "eyedropper-loupe")
 
+        controller.pickedColor(RGBAColor(red: 0.2, green: 0.4, blue: 0.8))
+        try UXSnapshotTests.render(controller, width: 1100, height: 640, dark: true, name: "eyedropper-picked")
+
         controller.selectTool(id: EditorToolRegistry.fill.id)
         controller.simulatePointer(at: CGPoint(x: 400, y: 400))                          // inside the white box
         try await Task.sleep(nanoseconds: 700_000_000)                                  // the region is found in the background
         try UXSnapshotTests.render(controller, width: 1100, height: 640, dark: true, name: "bucket-preview")
+
+        var clear = EditorToolRegistry.fill.defaultStyle
+        clear.strokeColor = .clear
+        doc.addAnnotation(Annotation(shape: FillShape(seed: CGPoint(x: 400, y: 400)), style: clear), select: false)
+        controller.simulatePointer(at: CGPoint(x: -10, y: -10))
+        try UXSnapshotTests.render(controller, width: 1100, height: 640, dark: true, name: "bucket-transparent")
+
+        controller.selectTool(id: EditorToolRegistry.rectangleSelect.id)
+        doc.setSelection(.rect(CGRect(x: 200, y: 200, width: 300, height: 150)))
+        try UXSnapshotTests.render(controller, width: 1100, height: 640, dark: true, name: "area-bar")
     }
 }

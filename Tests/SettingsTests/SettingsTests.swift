@@ -264,3 +264,41 @@ struct DraftTests {
         #expect(store.draftShortcut("t.hotkey") == nil && store.isPending("t.hotkey"))
     }
 }
+
+struct SettingsSearchTests {
+    private var sample: SettingsRegistry {
+        SettingsRegistry([
+            .init(id: "a.blink", section: .recording, group: "Menu bar" + SettingsHeading.liveSuffix, title: "Blink the red dot",
+                  defaultValue: .bool(true), control: .toggle),
+            .init(id: "a.fps", section: .recording, group: "Video", title: "Frame rate", help: "A screen cannot give more than its refresh rate.",
+                  defaultValue: .string("60"), control: .choice([.init("60", "60 fps")])),
+            .init(id: "a.format", section: .output, group: "Format", title: "Image format", defaultValue: .string("png"),
+                  control: .choice([.init("png", "PNG"), .init("jpeg", "JPEG")])),
+            .init(id: "a.hidden", section: .output, title: "Blink counter", defaultValue: .int(0), control: .hidden),
+        ])
+    }
+
+    private func found(_ query: String) -> [String] { SettingsSearch.matches(query, in: sample).map(\.id) }
+
+    @Test func wordsAreFoundInNamesExplanationsGroupsPagesAndChoices() {
+        #expect(found("blink") == ["a.blink"])                    // hidden settings are never offered
+        #expect(found("REFRESH") == ["a.fps"])
+        #expect(found("menu bar") == ["a.blink"])
+        #expect(found("jpeg") == ["a.format"])
+        #expect(found("recording") == ["a.blink", "a.fps"])       // the page's name finds everything on it
+    }
+
+    @Test func everyWordMustMatch() {
+        #expect(found("frame video") == ["a.fps"])
+        #expect(found("frame jpeg").isEmpty)
+        #expect(found("   ").isEmpty && found("").isEmpty)
+    }
+
+    @Test func theLiveNoteBecomesABadgeNotPartOfTheTitle() {
+        #expect(SettingsHeading("Menu bar" + SettingsHeading.liveSuffix) == SettingsHeading("Menu bar" + SettingsHeading.liveSuffix))
+        let live = SettingsHeading("Menu bar" + SettingsHeading.liveSuffix)
+        #expect(live.title == "Menu bar" && live.isLive)
+        #expect(SettingsHeading("Video").title == "Video" && !SettingsHeading("Video").isLive)
+        #expect(found("apply while recording").isEmpty)
+    }
+}

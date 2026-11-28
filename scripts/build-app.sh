@@ -25,8 +25,11 @@ cp Packaging/Info.plist "$APP/Contents/Info.plist"
 
 # App icon: build .icns from the brand iconset (unmodified)
 iconutil -c icns "$ASSETS/AppIcon.iconset" -o "$APP/Contents/Resources/AppIcon.icns"
-# Menu bar template image (1x + 2x)
-cp "$ASSETS/menubarTemplate.png" "$ASSETS/menubarTemplate@2x.png" "$APP/Contents/Resources/"
+# The license travels with every copy of the app
+cp LICENSE "$APP/Contents/Resources/LICENSE.txt"
+cp NOTICE "$APP/Contents/Resources/NOTICE.txt"
+# Menu bar images: idle, paused, and recording for dark and light menu bars (1x + 2x)
+cp "$ASSETS"/menubar/*.png "$APP/Contents/Resources/"
 
 # Sign. Prefer the stable local identity (scripts/setup-dev-signing.sh) so the Screen Recording
 # permission survives rebuilds; fall back to ad hoc (permission resets on every build).

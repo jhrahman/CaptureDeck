@@ -11,6 +11,7 @@ struct CaptureSettings {
     var includeCursor: Bool
     var labelDisplays: Bool
     var delaySeconds: Int
+    var scrollSpeed: ScrollSpeed
     var openEditor: Bool
     var autoSave: Bool
     var saveFolder: URL
@@ -26,6 +27,7 @@ struct CaptureSettings {
         includeCursor = store.bool(SettingID.includeCursor)
         labelDisplays = store.bool(SettingID.labelDisplays)
         delaySeconds = store.int(SettingID.delaySeconds)
+        scrollSpeed = ScrollSpeed(rawValue: store.string(SettingID.scrollSpeed)) ?? .medium
         openEditor = store.bool(SettingID.openEditor)
         autoSave = store.bool(SettingID.autoSave)
         let folder = store.string(SettingID.saveFolder)
@@ -48,10 +50,12 @@ final class CaptureCoordinator {
     private let clipboard: ClipboardManager
     private let lastCapture: LastCaptureStore
     private let store: SettingsStore
-    private var isCapturing = false
+    private(set) var isCapturing = false
     /// Hooks around the actual capture (the panel hides itself so it is not in the screenshot).
     var beforeCapture: (@MainActor () async -> Void)?
     var afterCapture: (@MainActor () -> Void)?
+    /// Reads, copies and shows text captured straight from the screen.
+    var textDelivery: TextCaptureDelivery?
     /// Called with each finished capture when "open in editor" is on.
     var openInEditor: (@MainActor (CapturedImage) -> Void)?
 
@@ -85,7 +89,7 @@ final class CaptureCoordinator {
         await beforeCapture?()
         defer { afterCapture?() }
         do {
-            let result = try await mode.run(CaptureContext(grabber: grabber, includeCursor: settings.includeCursor, labelDisplays: settings.labelDisplays))
+            let result = try await mode.run(CaptureContext(grabber: grabber, includeCursor: settings.includeCursor, labelDisplays: settings.labelDisplays, scrollSpeed: settings.scrollSpeed))
             try deliver(result, settings: settings)
         } catch CaptureError.cancelled {
             // User backed out; nothing to report.
@@ -98,6 +102,9 @@ final class CaptureCoordinator {
 
     private func deliver(_ result: CaptureResult, settings: CaptureSettings) throws {
         switch result {
+        case .textSource(let image):
+            let delivery = textDelivery
+            Task { await delivery?.deliver(image) }
         case .image(let image):
             if let source = image.source { lastCapture.target = source }
             // A clipboard problem must not lose the capture: keep going, and report it afterwards.

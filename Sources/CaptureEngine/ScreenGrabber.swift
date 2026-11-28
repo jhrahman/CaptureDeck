@@ -13,11 +13,14 @@ public struct CaptureContext: Sendable {
     public let includeCursor: Bool
     /// When several displays end up in one picture, mark each with a numbered badge and a divider.
     public let labelDisplays: Bool
+    /// How fast a scrolling capture scrolls the window.
+    public let scrollSpeed: ScrollSpeed
 
-    public init(grabber: any ScreenGrabber, includeCursor: Bool, labelDisplays: Bool = false) {
+    public init(grabber: any ScreenGrabber, includeCursor: Bool, labelDisplays: Bool = false, scrollSpeed: ScrollSpeed = .medium) {
         self.grabber = grabber
         self.includeCursor = includeCursor
         self.labelDisplays = labelDisplays
+        self.scrollSpeed = scrollSpeed
     }
 }
 

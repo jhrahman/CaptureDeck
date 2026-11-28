@@ -85,13 +85,6 @@ final class ScrollCaptureSession {
         if let global = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .keyDown], handler: handler) { monitors.append(global) }
     }
 
-    /// Where to leave the mouse pointer while capturing: on the status panel, so the page never sees a hovering pointer
-    /// (link previews, tooltips and hover highlights would otherwise end up in the pictures).
-    var pointerParkingSpot: CGPoint {
-        let rect = panelGlobalRect()
-        return rect.isEmpty ? .zero : CGPoint(x: rect.minX + 24, y: rect.midY)
-    }
-
     private func panelGlobalRect() -> CGRect {
         guard let panel else { return .zero }
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
@@ -209,10 +202,10 @@ final class ScrollCaptureSession {
                         .font(.system(size: 10.5)).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 4)
-                Button("Cancel", action: onCancel).controlSize(.small)
+                Button("Cancel", action: onCancel).buttonStyle(HUDButtonStyle(prominent: false))
                     .background(GeometryReader { proxy in Color.clear.onAppear { frames.cancel = proxy.frame(in: .named("hud")) }
                         .onChange(of: proxy.frame(in: .named("hud"))) { frames.cancel = $0 } })
-                Button("Done", action: onDone).controlSize(.small).buttonStyle(.borderedProminent)
+                Button("Done", action: onDone).buttonStyle(HUDButtonStyle(prominent: true))
                     .background(GeometryReader { proxy in Color.clear.onAppear { frames.done = proxy.frame(in: .named("hud")) }
                         .onChange(of: proxy.frame(in: .named("hud"))) { frames.done = $0 } })
             }
@@ -222,6 +215,65 @@ final class ScrollCaptureSession {
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.12)))
         }
+    }
+}
+
+/// The panel's buttons. The panel never becomes the active window, where standard buttons look flat (and macOS gives them no
+/// hover state at all), so they draw their own: they light up and lift under the pointer, and sink when pressed.
+private struct HUDButtonStyle: ButtonStyle {
+    let prominent: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        Look(label: configuration.label, prominent: prominent, pressed: configuration.isPressed)
+    }
+
+    private struct Look: View {
+        let label: ButtonStyleConfiguration.Label
+        let prominent: Bool
+        let pressed: Bool
+        @State private var hovering = false
+
+        var body: some View {
+            let shape = RoundedRectangle(cornerRadius: 7, style: .continuous)
+            label
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(prominent || hovering ? Color.white : Color.primary)
+                .padding(.horizontal, 11)
+                .frame(height: 24)
+                .background(shape.fill(fill))
+                .overlay(shape.strokeBorder(Color.white.opacity(hovering ? 0.45 : 0.12)))
+                .brightness(pressed ? -0.15 : (hovering && prominent ? 0.1 : 0))
+                .shadow(color: (prominent ? Color.accentColor : Color.red).opacity(hovering ? 0.55 : 0), radius: 5)
+                .scaleEffect(pressed ? 0.96 : (hovering ? 1.06 : 1))
+                .animation(.easeOut(duration: 0.12), value: hovering)
+                .background(HoverSensor { hovering = $0 })
+        }
+
+        private var fill: Color {
+            if prominent { return .accentColor }
+            return hovering ? Color(red: 0.86, green: 0.24, blue: 0.22) : Color.primary.opacity(0.12)      // red: it throws the capture away
+        }
+    }
+}
+
+/// Reports the pointer entering and leaving, also while another app is the active one (it is, during a scrolling capture).
+private struct HoverSensor: NSViewRepresentable {
+    let onChange: (Bool) -> Void
+
+    func makeNSView(context: Context) -> SensorView { SensorView() }
+    func updateNSView(_ view: SensorView, context: Context) { view.onChange = onChange }
+
+    final class SensorView: NSView {
+        var onChange: (Bool) -> Void = { _ in }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            trackingAreas.forEach(removeTrackingArea)
+            addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        }
+
+        override func mouseEntered(with event: NSEvent) { onChange(true) }
+        override func mouseExited(with event: NSEvent) { onChange(false) }
     }
 }
 

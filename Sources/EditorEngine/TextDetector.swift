@@ -9,6 +9,10 @@ public struct DetectedWord: Sendable, Equatable {
     public let rect: CGRect
     /// The whole line the word belongs to.
     public let lineRect: CGRect
+
+    public init(text: String, rect: CGRect, lineRect: CGRect) {
+        (self.text, self.rect, self.lineRect) = (text, rect, lineRect)
+    }
 }
 
 /// Finds the text in a picture (on the Mac, with Apple's Vision framework: nothing leaves the computer), so it can be hidden
@@ -19,13 +23,19 @@ public enum TextDetector {
     private static let sliceOverlap = 200
 
     /// Reads all the words in `image`. Slow (a moment for a screenshot): call it off the main thread.
-    public static func words(in image: CGImage) -> [DetectedWord] {
+    public static func words(in image: CGImage, options: TextReadingOptions = TextReadingOptions()) -> [DetectedWord] {
         var found: [DetectedWord] = []
         var top = 0
         while top < image.height {
             let height = min(sliceHeight, image.height - top)
             if let slice = image.cropping(to: CGRect(x: 0, y: top, width: image.width, height: height)) {
-                for word in read(slice, offsetY: CGFloat(top)) where !found.contains(where: { duplicate($0, word) }) { found.append(word) }
+                // A line cut through by the slice's edge reads as nonsense; the overlapping neighbour has it whole.
+                let cutAbove = top > 0 ? CGFloat(top) + 3 : -.infinity
+                let cutBelow = top + height < image.height ? CGFloat(top + height) - 3 : .infinity
+                for word in read(slice, offsetY: CGFloat(top), options: options)
+                where word.lineRect.minY > cutAbove && word.lineRect.maxY < cutBelow && !found.contains(where: { duplicate($0, word) }) {
+                    found.append(word)
+                }
             }
             if top + height >= image.height { break }
             top += height - sliceOverlap
@@ -41,10 +51,15 @@ public enum TextDetector {
         return !overlap.isNull && overlap.width * overlap.height > 0.5 * min(a.rect.width * a.rect.height, b.rect.width * b.rect.height)
     }
 
-    private static func read(_ image: CGImage, offsetY: CGFloat) -> [DetectedWord] {
+    private static func read(_ image: CGImage, offsetY: CGFloat, options: TextReadingOptions) -> [DetectedWord] {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = false                         // screens hold names, codes and numbers, not prose
+        request.usesLanguageCorrection = options.correctsSpelling      // off unless asked: screens hold names, codes and numbers
+        if let language = options.language {
+            request.recognitionLanguages = [language]
+        } else {
+            request.automaticallyDetectsLanguage = true
+        }
         request.minimumTextHeight = min(max(8 / Float(image.height), 0.001), 0.03)    // small interface text counts
         let handler = VNImageRequestHandler(cgImage: image, options: [:])
         guard (try? handler.perform([request])) != nil, let observations = request.results else { return [] }

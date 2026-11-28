@@ -26,6 +26,8 @@ public struct CapturedImage: @unchecked Sendable {
 /// What a capture mode produces. `.video` can be added when recording arrives.
 public enum CaptureResult: Sendable {
     case image(CapturedImage)
+    /// A part of the screen whose text is wanted, not its picture.
+    case textSource(CapturedImage)
 }
 
 public extension CapturedImage {

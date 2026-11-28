@@ -128,6 +128,7 @@ struct EscapeAndAreaTests {
         #expect(try #require(pixel(doc.workingImage.cgImage, 100, 70)).a == 0)
         // Pick the colour, then the Paint Bucket fills the transparent hole (it is a region of its own).
         controller.pickedColor(RGBAColor(red: 0, green: 0, blue: 1))
+        controller.simulateAction(.fillWithPicked)
         doc.clearSelection()
         let tool = FillTool()
         let context = ToolContext(document: doc, zoom: 2, style: controller.currentStyle)

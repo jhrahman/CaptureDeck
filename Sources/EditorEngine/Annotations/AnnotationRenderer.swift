@@ -16,7 +16,7 @@ public enum AnnotationRenderer {
         }
         for annotation in StepNumbering.resequenced(annotations) {
             context.saveGState()
-            if annotation.style.opacity < 1 {
+            if annotation.style.opacity < 1, !erases(annotation) {      // a layer of its own would have nothing to erase
                 context.setAlpha(CGFloat(annotation.style.opacity))
                 context.beginTransparencyLayer(auxiliaryInfo: nil)     // stroke and fill fade together
                 drawOne(annotation)
@@ -26,6 +26,14 @@ public enum AnnotationRenderer {
             }
             context.restoreGState()
         }
+    }
+
+    /// Whether any of these makes part of the picture transparent. A view must then draw the picture and annotations in
+    /// one transparency layer, so that only they are erased and not what is behind them.
+    public static func erasesPixels(_ annotations: [Annotation]) -> Bool { annotations.contains(where: erases) }
+
+    private static func erases(_ annotation: Annotation) -> Bool {
+        annotation.shape is FillShape && FillShape.erases(annotation.style)
     }
 
     /// The picture with the annotations burned in. Returns the picture itself if there are none.

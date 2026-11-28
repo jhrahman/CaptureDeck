@@ -19,8 +19,8 @@ struct ThemeTests {
     @Test func tokensResolvePerAppearance() {
         #expect(hex(of: Theme.windowBackground, appearance: .darkAqua) == 0x17191B)
         #expect(hex(of: Theme.windowBackground, appearance: .aqua) == 0xF4F1EA)
-        #expect(hex(of: Theme.accent, appearance: .darkAqua) == 0xFFC93C)
-        #expect(hex(of: Theme.accent, appearance: .aqua) == 0xE0A100)
+        #expect(hex(of: Theme.accent, appearance: .darkAqua) == 0xFF4D4F)
+        #expect(hex(of: Theme.accent, appearance: .aqua) == 0xE5383B)
     }
 
     @Test func preferenceMapsToAppearance() {

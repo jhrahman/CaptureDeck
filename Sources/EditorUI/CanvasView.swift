@@ -72,7 +72,7 @@ final class CanvasView: NSView {
     /// without switching tools, except the freehand ones (pencil, redact brush) and Hide Text: a press there always does the
     /// tool's own job, even right on top of an earlier stroke. (Use the Select tool to move strokes.)
     static func allowsGrabbing(from tool: any EditorTool) -> Bool {
-        tool.descriptor.kind == .draw && !(tool is FreehandTool) && !(tool is HideTextTool) && !(tool is EyedropperTool)
+        tool.descriptor.kind == .draw && !(tool is FreehandTool) && !(tool is HideTextTool) && !(tool is EyedropperTool) && !(tool is ExtractTextTool)
     }
 
     /// With a colour tool active, holding Option turns the pointer into an eyedropper: click to pick a colour from the picture
@@ -250,7 +250,11 @@ final class CanvasView: NSView {
         let backing = window?.backingScaleFactor ?? 2
         let devicePixelsPerImagePixel = (enclosingScrollView?.magnification ?? 1) * backing
 
-        if hasTransparency { drawCheckerboard(in: dirtyRect.intersection(bounds), square: 8 / devicePixelsPerImagePixel, context) }
+        let preview = previewProvider?() ?? []
+        let erases = AnnotationRenderer.erasesPixels(annotations)
+        if hasTransparency || erases { drawCheckerboard(in: dirtyRect.intersection(bounds), square: 8 / devicePixelsPerImagePixel, context) }
+
+        if erases { context.beginTransparencyLayer(auxiliaryInfo: nil) }    // a transparent fill shows the checkerboard
 
         context.saveGState()
         // Crisp pixels when zoomed in, smooth when zoomed out.
@@ -262,7 +266,8 @@ final class CanvasView: NSView {
 
         // Annotations sit on top of the picture, in order (the view is flipped, so image pixels draw as they are).
         AnnotationRenderer.draw(hiddenAnnotationIDs.isEmpty ? annotations : annotations.filter { !hiddenAnnotationIDs.contains($0.id) }, in: context, backdrop: image)
-        if let preview = previewProvider?(), !preview.isEmpty { AnnotationRenderer.draw(preview, in: context, backdrop: image) }
+        if !preview.isEmpty { AnnotationRenderer.draw(preview, in: context, backdrop: image) }
+        if erases { context.endTransparencyLayer() }
         drawObjectSelection(in: context)
 
         if let selection { drawSelection(selection, in: context) }

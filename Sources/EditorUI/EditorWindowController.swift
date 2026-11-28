@@ -34,6 +34,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         window.title = editorDocument.title
         window.center()
         super.init(window: window)
+        viewController.onShowText = { [weak self] text in self?.showRecognizedText(text) }
+        viewController.onSavePDF = { [weak self] in self?.saveSearchablePDF(nil) }
         window.delegate = self
 
         let toolbar = NSToolbar(identifier: "app.capturedeck.editor.toolbar")
@@ -98,6 +100,43 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         }
         sheet.contentViewController = NSHostingController(rootView: makeContent(dismiss))
         window.beginSheet(sheet)
+    }
+
+    @objc func copyTextFromPicture(_ sender: Any?) { viewController.extractText(show: false) }
+    @objc func showTextInPicture(_ sender: Any?) { viewController.extractText(show: true) }
+
+    func showRecognizedText(_ text: String) {
+        guard let window, window.attachedSheet == nil else { return }
+        let sheet = TextSheetWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: false)
+        let dismiss = { [weak window, weak sheet] in
+            if let window, let sheet { window.endSheet(sheet) }
+        }
+        sheet.contentViewController = NSHostingController(rootView: RecognizedTextSheet(
+            text: text, copy: { [weak self] edited in self?.viewController.copyText(edited) }, close: dismiss))
+        window.beginSheet(sheet)
+    }
+
+    @objc func saveSearchablePDF(_ sender: Any?) {
+        guard let window else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = "\(editorDocument.title).pdf"
+        panel.message = "The PDF looks like the picture, and its text can be searched and selected."
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = panel.url, let self else { return }
+            ToastView.show("Reading the text…", symbol: "doc.text.viewfinder", in: self.window)
+            Task {
+                do {
+                    guard let data = await self.viewController.searchablePDF() else { throw CocoaError(.fileWriteUnknown) }
+                    try data.write(to: url, options: .atomic)
+                    ToastView.show("Saved \(url.lastPathComponent)", in: self.window)
+                } catch {
+                    let alert = NSAlert(error: error)
+                    alert.messageText = "Could not save the PDF"
+                    if let window = self.window { _ = await alert.beginSheetModal(for: window) } else { alert.runModal() }
+                }
+            }
+        }
     }
 
     @objc func resizeImage(_ sender: Any?) {

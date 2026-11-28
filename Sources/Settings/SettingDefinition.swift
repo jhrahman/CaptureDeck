@@ -8,23 +8,27 @@ public struct SettingsSection: Hashable, Sendable, Identifiable {
     /// SF Symbol shown on the tab.
     public let symbol: String
     public let order: Int
+    /// One line under the page's title.
+    public let summary: String
 
-    public init(id: String, title: String, symbol: String, order: Int) {
+    public init(id: String, title: String, symbol: String, order: Int, summary: String = "") {
+        self.summary = summary
         self.id = id
         self.title = title
         self.symbol = symbol
         self.order = order
     }
 
-    public static let general = SettingsSection(id: "general", title: "General", symbol: "gearshape", order: 0)
-    public static let capture = SettingsSection(id: "capture", title: "Capture", symbol: "camera.viewfinder", order: 1)
-    public static let hotkeys = SettingsSection(id: "hotkeys", title: "Hotkeys", symbol: "keyboard", order: 2)
-    public static let panel = SettingsSection(id: "panel", title: "Capture Panel", symbol: "rectangle.3.group", order: 3)
-    public static let editor = SettingsSection(id: "editor", title: "Editor", symbol: "slider.horizontal.3", order: 4)
-    public static let drawing = SettingsSection(id: "drawing", title: "Draw Tools", symbol: "pencil.and.outline", order: 5)
-    public static let output = SettingsSection(id: "output", title: "Output", symbol: "square.and.arrow.down", order: 6)
-    public static let appearance = SettingsSection(id: "appearance", title: "Appearance", symbol: "paintbrush", order: 7)
-    public static let advanced = SettingsSection(id: "advanced", title: "Advanced", symbol: "wrench.and.screwdriver", order: 8)
+    public static let general = SettingsSection(id: "general", title: "General", symbol: "gearshape", order: 0, summary: "Starting up and feedback")
+    public static let capture = SettingsSection(id: "capture", title: "Capture", symbol: "camera.viewfinder", order: 1, summary: "What happens when you take a screenshot")
+    public static let recording = SettingsSection(id: "recording", title: "Recording", symbol: "record.circle", order: 2, summary: "Screen recording: picture, sound, controls and saving")
+    public static let hotkeys = SettingsSection(id: "hotkeys", title: "Hotkeys", symbol: "keyboard", order: 3, summary: "Keyboard shortcuts that work in any app")
+    public static let panel = SettingsSection(id: "panel", title: "Capture Panel", symbol: "rectangle.3.group", order: 4, summary: "The floating toolbar and its buttons")
+    public static let editor = SettingsSection(id: "editor", title: "Editor", symbol: "slider.horizontal.3", order: 5, summary: "How images open, crop, resize and close")
+    public static let drawing = SettingsSection(id: "drawing", title: "Draw Tools", symbol: "pencil.and.outline", order: 6, summary: "The starting look of every drawing tool")
+    public static let output = SettingsSection(id: "output", title: "Output", symbol: "square.and.arrow.down", order: 7, summary: "Where screenshots are saved, and in what format")
+    public static let appearance = SettingsSection(id: "appearance", title: "Appearance", symbol: "paintbrush", order: 8, summary: "Light, dark or follow your Mac")
+    public static let advanced = SettingsSection(id: "advanced", title: "Advanced", symbol: "wrench.and.screwdriver", order: 9, summary: "Less common options")
 }
 
 /// Everything the app knows about one setting. The Settings window, validation, reset and

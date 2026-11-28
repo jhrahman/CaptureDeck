@@ -3,11 +3,48 @@ import CoreModels
 import EditorEngine
 import SwiftUI
 
+/// The system's screen eyedropper: a magnifier that picks any colour on any screen. It needs no permission. Replaceable in tests.
+@MainActor
+enum ScreenColorSampler {
+    static var pick: (@escaping @MainActor (RGBAColor) -> Void) -> Void = { done in
+        let sampler = NSColorSampler()
+        sampler.show { picked in
+            _ = sampler                                         // keep it alive until the user has picked or pressed Esc
+            guard let color = picked?.usingColorSpace(.sRGB) else { return }
+            let result = RGBAColor(red: color.redComponent, green: color.greenComponent, blue: color.blueComponent, alpha: 1)
+            MainActor.assumeIsolated { done(result) }
+        }
+    }
+}
+
+/// Reports a right-click (or Control-click) and lets every other click through to what is underneath.
+private struct RightClickCatcher: NSViewRepresentable {
+    let action: () -> Void
+
+    func makeNSView(context: Context) -> Catcher { Catcher() }
+    func updateNSView(_ view: Catcher, context: Context) { view.action = action }
+
+    final class Catcher: NSView {
+        var action: () -> Void = {}
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard let event = NSApp.currentEvent,
+                  event.type == .rightMouseDown || (event.type == .leftMouseDown && event.modifierFlags.contains(.control)) else { return nil }
+            return super.hitTest(point)
+        }
+        override func rightMouseDown(with event: NSEvent) { action() }
+        override func mouseDown(with event: NSEvent) { action() }
+    }
+}
+
 /// A colour button that opens a palette of ready colours (one click), with the full colour panel one step further.
+/// Right-click it to pick a colour from the screen straight into it.
 struct ColorSwatchButton: View {
     @Binding var color: RGBAColor
     var allowsClear: Bool
     var help: String
+    /// What "no colour" is called: "No fill" for a shape's inside, "Transparent" for the paint bucket.
+    var clearTitle = "No fill"
     @State private var open = false
 
     static let palette: [RGBAColor] = [
@@ -29,7 +66,8 @@ struct ColorSwatchButton: View {
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.primary.opacity(0.25), lineWidth: 1))
         }
         .buttonStyle(.plain)
-        .help(help).accessibilityLabel(help)
+        .overlay(RightClickCatcher { pickFromScreen() })
+        .help("\(help) · click for colors, right-click to pick one from the screen").accessibilityLabel(help)
         .popover(isPresented: $open, arrowEdge: .bottom) { palettePanel }
     }
 
@@ -38,9 +76,7 @@ struct ColorSwatchButton: View {
             LazyVGrid(columns: Array(repeating: GridItem(.fixed(24), spacing: 6), count: 8), spacing: 6) {
                 ForEach(Array(Self.palette.enumerated()), id: \.offset) { _, swatch in
                     Button {
-                        var picked = swatch
-                        if color.alpha > 0 && color.alpha < 1 { picked.alpha = color.alpha }      // keep the current transparency
-                        color = picked
+                        use(swatch)
                     } label: {
                         RoundedRectangle(cornerRadius: 5).fill(swiftUIColor(swatch))
                             .frame(width: 24, height: 24)
@@ -50,17 +86,32 @@ struct ColorSwatchButton: View {
                     .accessibilityLabel(swatch.hex)
                 }
             }
+            Button { pickFromScreen() } label: {
+                Label("Pick from screen", systemImage: "eyedropper").frame(maxWidth: .infinity)
+            }
+            .controlSize(.regular)
             HStack(spacing: 8) {
                 Text("Custom").font(.caption).foregroundStyle(.secondary)
                 ColorPicker("Custom color", selection: Binding(get: { swiftUIColor(color) }, set: { color = rgba($0) }), supportsOpacity: true)
                     .labelsHidden()
                 Spacer()
                 if allowsClear {
-                    Button("No fill") { color = .clear; open = false }.controlSize(.small)
+                    Button(clearTitle) { color = .clear; open = false }.controlSize(.small)
                 }
             }
         }
         .padding(12)
+    }
+
+    private func use(_ chosen: RGBAColor) {
+        var new = chosen
+        if color.alpha > 0 && color.alpha < 1 { new.alpha = color.alpha }      // keep the current transparency
+        color = new
+    }
+
+    private func pickFromScreen() {
+        open = false
+        ScreenColorSampler.pick { use($0) }
     }
 
     private func isCurrent(_ swatch: RGBAColor) -> Bool {

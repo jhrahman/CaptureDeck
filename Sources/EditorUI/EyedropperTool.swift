@@ -3,8 +3,8 @@ import CoreModels
 import EditorEngine
 
 /// Picks the exact colour of any pixel of the picture. A magnifier follows the pointer and shows the pixels around it and the
-/// colour value live; click (or press, slide to the right pixel and let go) to pick it. The colour becomes the Paint Bucket's
-/// colour, ready to fill a region.
+/// colour value live; click (or press, slide to the right pixel and let go) to pick it. The picked colour appears in the bar,
+/// where it can be copied or sent to the Paint Bucket.
 @MainActor
 final class EyedropperTool: OverlayTool {
     let descriptor = EditorToolRegistry.pickColor
@@ -18,7 +18,7 @@ final class EyedropperTool: OverlayTool {
     private var lastHex = ""
 
     var statusText: String {
-        lastHex.isEmpty ? "Click any pixel to pick its colour" : "\(lastHex) · click to pick it"
+        lastHex.isEmpty ? "Click any pixel to pick its colour" : "\(lastHex) · click to pick it"       // the magnifier shows this live
     }
 
     var overlayRect: CGRect? {

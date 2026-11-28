@@ -210,6 +210,30 @@ struct ScrollCaptureSessionTests {
 }
 
 
+struct ScrollGlideTests {
+    @Test func framesAddUpToExactlyTheDistance() {
+        for speed in ScrollSpeed.allCases {
+            for points in [7.0, 120, 613, -613] {
+                #expect(ScrollGlide.deltas(points: points, speed: speed).reduce(0, +) == Int32(points), "\(speed) \(points)")
+            }
+        }
+    }
+
+    @Test func slowerSpeedsTakeMoreAndSmallerFrames() {
+        let all = ScrollSpeed.allCases.map { ScrollGlide.deltas(points: 600, speed: $0) }      // slowest first
+        for (slower, faster) in zip(all, all.dropFirst()) {
+            #expect(slower.count > faster.count)
+            #expect(slower.max()! <= faster.max()!)
+        }
+    }
+
+    @Test func aGlideEasesInAndOutAndNeverRunsBackwards() {
+        let deltas = ScrollGlide.deltas(points: 600, speed: .medium)
+        #expect(deltas.allSatisfy { $0 >= 0 })
+        #expect(deltas.first! < deltas[deltas.count / 2] && deltas.last! < deltas[deltas.count / 2])
+    }
+}
+
 struct HUDHitTestingTests {
     private let panel = CGRect(x: 770, y: 45, width: 380, height: 64)
     private let done = CGRect(x: 310, y: 18, width: 56, height: 28), cancel = CGRect(x: 236, y: 18, width: 62, height: 28)

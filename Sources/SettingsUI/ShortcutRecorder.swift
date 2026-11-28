@@ -1,5 +1,6 @@
 import AppKit
 import CoreModels
+import DesignSystem
 import Settings
 import SwiftUI
 
@@ -105,9 +106,9 @@ final class RecorderField: NSView {
     override func draw(_ dirtyRect: NSRect) {
         let rect = bounds.insetBy(dx: 0.5, dy: 0.5)
         let path = NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6)
-        (isRecording ? NSColor.controlAccentColor.withAlphaComponent(0.15) : NSColor.controlBackgroundColor).setFill()
+        (isRecording ? Theme.accent.withAlphaComponent(0.15) : NSColor.quaternaryLabelColor.withAlphaComponent(0.12)).setFill()
         path.fill()
-        (isRecording ? NSColor.controlAccentColor : NSColor.separatorColor).setStroke()
+        (isRecording ? Theme.accent : NSColor.separatorColor).setStroke()
         path.lineWidth = isRecording ? 2 : 1
         path.stroke()
 

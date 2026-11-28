@@ -39,6 +39,17 @@ final class HotkeyBindings {
             .sink { [weak self] id in MainActor.assumeIsolated { self?.register(id) } }
     }
 
+    /// A shortcut that exists only for a moment (Esc during a recording countdown). Pass nil to remove it. It uses the same
+    /// manager as the others: a second one would take over their key presses.
+    func setTemporary(_ shortcut: KeyShortcut, name: String, action: (@MainActor () -> Void)?) {
+        guard let action else { manager.unregister(name: name); return }
+        do {
+            try manager.register(name: name, shortcut: shortcut, handler: action)
+        } catch {
+            log.error("Temporary hotkey \(name, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
     private func setPaused(_ pause: Bool) {
         guard pause != paused else { return }
         paused = pause
